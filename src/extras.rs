@@ -1829,6 +1829,49 @@ impl App {
                     4=>{
                         let on=self.settings_feature_header(ui,crate::app::TODO_PAGE,"任务清单与到期提醒",|_,_|{});
                         let _=on;
+                        ui.add_space(8.0);
+                        settings_label(ui, "Hermes 定时调度与待办同步");
+                        settings_card(ui, |ui| {
+                            let mut bridge_on = self.hermes.config.enabled;
+                            setting_row(ui, "启用同步", "定时拉取 Hermes 19 项任务健康度、DMS 保活状态与 Vikunja 待办", &mut bridge_on);
+                            if bridge_on != self.hermes.config.enabled {
+                                self.hermes.config.enabled = bridge_on;
+                                let _ = self.hermes.config.save();
+                                self.hermes.trigger_refresh();
+                            }
+                            if self.hermes.config.enabled {
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    ui.label("服务地址: ");
+                                    let mut url = self.hermes.config.server_url.clone();
+                                    let edit = ui.add(egui::TextEdit::singleline(&mut url).desired_width(220.0));
+                                    if edit.lost_focus() || (edit.changed() && url != self.hermes.config.server_url) {
+                                        self.hermes.config.server_url = url;
+                                        let _ = self.hermes.config.save();
+                                    }
+                                });
+                                settings_hint(ui, "默认预设: http://10.10.10.103:8686");
+                                ui.separator();
+                                ui.horizontal(|ui| {
+                                    if ui.button("测试连接").clicked() {
+                                        self.hermes.test_connection(&self.hermes.config.server_url);
+                                    }
+                                    if ui.button("立即刷新").clicked() {
+                                        self.hermes.trigger_refresh();
+                                    }
+                                    if ui.button("打开配置文件").clicked() {
+                                        crate::hermes_monitor::open_url_in_browser(&crate::hermes_monitor::HermesBridgeConfig::config_path().to_string_lossy());
+                                    }
+                                });
+                                self.hermes.check_test_result();
+                                if let Some(res) = &self.hermes.test_result {
+                                    match res {
+                                        Ok(msg) => { ui.label(egui::RichText::new(format!("✅ {msg}")).color(Color32::from_rgb(80, 200, 120)).size(12.0)); }
+                                        Err(err) => { ui.label(egui::RichText::new(format!("❌ {err}")).color(Color32::from_rgb(255, 100, 100)).size(12.0)); }
+                                    }
+                                }
+                            }
+                        });
                         ui.add_space(12.0);
                         let on=self.settings_feature_header(ui,crate::app::SHELF_PAGE,"临时收纳文件与剪贴板",|_,_|{});
                         ui.add_enabled_ui(on,|ui|{

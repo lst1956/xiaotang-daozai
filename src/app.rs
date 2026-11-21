@@ -710,6 +710,7 @@ pub struct App {
     /// 本次运行实际使用兼容渲染（Direct3D 12）；设置里的开关与它不同时提示重启。
     pub render_compat_running: bool,
     pub(crate) todos: model::TodoList,
+    pub(crate) hermes: crate::hermes_monitor::HermesService,
     pub(crate) water: model::Water,
     pub(crate) shelf: model::Shelf,
 
@@ -920,6 +921,7 @@ impl App {
             render_compat_running: settings.render_compat,
             settings,
             todos: model::TodoList::load(),
+            hermes: crate::hermes_monitor::HermesService::new(),
             water: model::Water::default(),
             shelf: model::Shelf::load(),
             w: Spring::new(bw, CLOSE.0, CLOSE.1),
@@ -1828,6 +1830,7 @@ impl App {
         self.t = env.t;
         self.fullscreen_hidden=env.fullscreen_hidden;
         self.quota_tick();
+        self.hermes_tick();
         self.weather_tick();
         self.current_hour=env.hour();
         self.system_idle=env.idle_seconds;
@@ -3547,6 +3550,12 @@ impl App {
             }
             self.cancel_edit();
             if added {self.open_task_reminder(0);}
+        }
+    }
+
+    pub(crate) fn hermes_tick(&mut self) {
+        if self.hermes.config.enabled {
+            self.hermes.sync_into_todos(&mut self.todos);
         }
     }
 }

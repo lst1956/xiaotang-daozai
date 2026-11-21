@@ -38,6 +38,7 @@ mod task_picker;
 pub mod model;
 pub mod renderer;
 pub mod otp;
+pub mod hermes_monitor;
 pub mod quota;
 mod quota_ui;
 pub mod weather;

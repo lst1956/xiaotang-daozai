@@ -924,6 +924,36 @@ impl App {
         if self.todo_choosing{paint::close(&edc,135.0,109.0,3.5,theme::WHITE);}else{paint::pencil(&edc,135.0,109.0,11.0,theme::WHITE);}
         edc.text(145.0, 112.5, if self.todo_choosing{"取消"}else{"改一下"}, size::BODY, W::Regular, theme::WHITE, H::Left);
 
+        if self.hermes.config.enabled {
+            if let Some(snapshot) = self.hermes.snapshot() {
+                let dms_ok = snapshot.hermes.dms.as_ref().map_or(true, |d| d.status.as_deref() == Some("ok"));
+                let has_err = snapshot.hermes.has_error || !dms_ok;
+                let bg_col = if has_err { Color32::from_rgb(60, 20, 20) } else { Color32::from_rgb(20, 38, 25) };
+                let (hr, hc) = capsule(c, 41.0, 128.0, 148.0, 24.0, "hermes-status-pill", bg_col, bg_col);
+                if has_err {
+                    hc.text(50.0, 144.0, "⚠️ DMS/Hermes 异常", size::TINY, W::Semibold, theme::RED, H::Left);
+                } else {
+                    hc.text(50.0, 144.0, &format!("🟢 DMS正常 · {}项活跃", snapshot.hermes.active_jobs), size::TINY, W::Semibold, theme::GREEN, H::Left);
+                }
+                let tip = format!(
+                    "DMS 保活: {}\nHermes 任务: 活跃 {} | 暂停 {} | 失败 {}\n点击在浏览器中打开 Hermes 控制台",
+                    snapshot.hermes.dms.as_ref().and_then(|d| d.status.as_deref()).unwrap_or("未知"),
+                    snapshot.hermes.active_jobs,
+                    snapshot.hermes.paused_jobs,
+                    snapshot.hermes.failed_count
+                );
+                if hr.on_hover_text(tip).clicked() {
+                    crate::hermes_monitor::open_url_in_browser("http://10.10.10.103:8648");
+                }
+            } else {
+                let (hr, hc) = capsule(c, 41.0, 128.0, 148.0, 24.0, "hermes-status-pill", theme::CARD, theme::BTN);
+                hc.text(50.0, 144.0, "⚪ Hermes 同步中...", size::TINY, W::Regular, theme::GRAY, H::Left);
+                if hr.clicked() {
+                    self.hermes.trigger_refresh();
+                }
+            }
+        }
+
         c.fill(196.0, 31.0, 181.0, 93.0, 12.0, theme::CARD);
         let editing = self.adding || self.editing.is_some();
         if count == 0 && !editing {
