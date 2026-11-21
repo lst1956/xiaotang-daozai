@@ -3555,7 +3555,11 @@ impl App {
 
     pub(crate) fn hermes_tick(&mut self) {
         if self.hermes.config.enabled {
-            self.hermes.sync_into_todos(&mut self.todos);
+            let now = std::time::Instant::now();
+            if self.hermes.last_poll_time.map_or(true, |t| now.duration_since(t).as_secs() >= 3) {
+                self.hermes.last_poll_time = Some(now);
+                self.hermes.sync_into_todos(&mut self.todos);
+            }
         }
     }
 }

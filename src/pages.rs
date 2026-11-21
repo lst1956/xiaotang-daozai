@@ -943,7 +943,12 @@ impl App {
                     snapshot.hermes.failed_count
                 );
                 if hr.on_hover_text(tip).clicked() {
-                    crate::hermes_monitor::open_url_in_browser("http://10.10.10.103:8648");
+                    let target = if self.hermes.config.server_url.contains(":8686") {
+                        self.hermes.config.server_url.replace(":8686", ":8648")
+                    } else {
+                        self.hermes.config.server_url.clone()
+                    };
+                    crate::hermes_monitor::open_url_in_browser(&target);
                 }
             } else {
                 let (hr, hc) = capsule(c, 41.0, 128.0, 148.0, 24.0, "hermes-status-pill", theme::CARD, theme::BTN);
