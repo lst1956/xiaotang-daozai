@@ -929,19 +929,35 @@ impl App {
                 let dms_ok = snapshot.hermes.dms.as_ref().map_or(true, |d| d.status.as_deref() == Some("ok"));
                 let has_err = snapshot.hermes.has_error || !dms_ok;
                 let bg_col = if has_err { Color32::from_rgb(60, 20, 20) } else { Color32::from_rgb(20, 38, 25) };
-                let (hr, hc) = capsule(c, 41.0, 128.0, 148.0, 24.0, "hermes-status-pill", bg_col, bg_col);
+                let (hr, hc) = capsule(c, 41.0, 16.0, 148.0, 22.0, "hermes-status-pill", bg_col, bg_col);
                 if has_err {
-                    hc.text(50.0, 144.0, "⚠️ DMS/Hermes 异常", size::TINY, W::Semibold, theme::RED, H::Left);
+                    hc.text(50.0, 30.5, "⚠️ DMS/Hermes 异常", size::TINY, W::Semibold, theme::RED, H::Left);
                 } else {
-                    hc.text(50.0, 144.0, &format!("🟢 DMS正常 · {}项活跃", snapshot.hermes.active_jobs), size::TINY, W::Semibold, theme::GREEN, H::Left);
+                    hc.text(50.0, 30.5, &format!("🟢 DMS正常 · {}项活跃", snapshot.hermes.active_jobs), size::TINY, W::Semibold, theme::GREEN, H::Left);
                 }
-                let tip = format!(
-                    "DMS 保活: {}\nHermes 任务: 活跃 {} | 暂停 {} | 失败 {}\n点击在浏览器中打开 Hermes 控制台",
-                    snapshot.hermes.dms.as_ref().and_then(|d| d.status.as_deref()).unwrap_or("未知"),
-                    snapshot.hermes.active_jobs,
-                    snapshot.hermes.paused_jobs,
-                    snapshot.hermes.failed_count
-                );
+                let tip = if has_err {
+                    let mut s = format!(
+                        "⚠️ DMS/Hermes 调度异常\n• DMS 保活: {}\n• 活跃: {} | 暂停: {} | 失败: {}\n",
+                        snapshot.hermes.dms.as_ref().and_then(|d| d.status.as_deref()).unwrap_or("未知"),
+                        snapshot.hermes.active_jobs,
+                        snapshot.hermes.paused_jobs,
+                        snapshot.hermes.failed_count
+                    );
+                    for fj in &snapshot.hermes.failed_jobs {
+                        if let Some(name) = &fj.name {
+                            s.push_str(&format!("• 异常任务: {name}\n"));
+                        }
+                    }
+                    s.push_str("点击在浏览器中打开 Hermes 控制台");
+                    s
+                } else {
+                    format!(
+                        "🟢 Hermes 定时调度健康\n• DMS 保活: 正常\n• 定时任务: {} 项 (活跃 {} 项)\n• Vikunja 待办: {} 项未完成\n点击在浏览器中打开 Hermes 控制台",
+                        snapshot.hermes.total_jobs,
+                        snapshot.hermes.active_jobs,
+                        snapshot.todos.total_unfinished
+                    )
+                };
                 if hr.on_hover_text(tip).clicked() {
                     let target = if self.hermes.config.server_url.contains(":8686") {
                         self.hermes.config.server_url.replace(":8686", ":8648")
@@ -951,8 +967,8 @@ impl App {
                     crate::hermes_monitor::open_url_in_browser(&target);
                 }
             } else {
-                let (hr, hc) = capsule(c, 41.0, 128.0, 148.0, 24.0, "hermes-status-pill", theme::CARD, theme::BTN);
-                hc.text(50.0, 144.0, "⚪ Hermes 同步中...", size::TINY, W::Regular, theme::GRAY, H::Left);
+                let (hr, hc) = capsule(c, 41.0, 16.0, 148.0, 22.0, "hermes-status-pill", theme::CARD, theme::BTN);
+                hc.text(50.0, 30.5, "⚪ Hermes 同步中...", size::TINY, W::Regular, theme::GRAY, H::Left);
                 if hr.clicked() {
                     self.hermes.trigger_refresh();
                 }

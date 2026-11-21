@@ -1871,6 +1871,53 @@ impl App {
                                         Err(err) => { ui.label(egui::RichText::new(format!("❌ {err}")).color(Color32::from_rgb(255, 100, 100)).size(12.0)); }
                                     }
                                 }
+                                if let Some(overview) = self.hermes.snapshot() {
+                                    ui.separator();
+                                    ui.horizontal(|ui| {
+                                        ui.label(egui::RichText::new("Hermes 定时调度任务列表").size(13.0).strong());
+                                        if let Some(dms) = &overview.hermes.dms {
+                                            let dms_status = dms.status.as_deref().unwrap_or("未知");
+                                            let color = if dms_status == "ok" { Color32::from_rgb(80, 200, 120) } else { Color32::from_rgb(255, 100, 100) };
+                                            ui.label(egui::RichText::new(format!("DMS保活: {dms_status}")).color(color).size(12.0));
+                                        }
+                                    });
+                                    ui.label(egui::RichText::new(format!(
+                                        "共 {} 项任务 · 活跃 {} · 暂停 {} · 失败 {}",
+                                        overview.hermes.total_jobs,
+                                        overview.hermes.active_jobs,
+                                        overview.hermes.paused_jobs,
+                                        overview.hermes.failed_count
+                                    )).size(11.5).color(Color32::from_gray(160)));
+
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("hermes_jobs_scroll")
+                                        .max_height(220.0)
+                                        .auto_shrink([false, false])
+                                        .show(ui, |ui| {
+                                            for job in &overview.hermes.jobs {
+                                                ui.horizontal(|ui| {
+                                                    let is_err = job.has_error.unwrap_or(false);
+                                                    let state = job.state.as_deref().unwrap_or("active");
+                                                    let badge = if is_err {
+                                                        egui::RichText::new("❌").color(Color32::from_rgb(255, 100, 100))
+                                                    } else if state == "active" {
+                                                        egui::RichText::new("🟢").color(Color32::from_rgb(80, 200, 120))
+                                                    } else {
+                                                        egui::RichText::new("⏸").color(Color32::from_gray(140))
+                                                    };
+                                                    ui.label(badge);
+                                                    let name = job.name.as_deref().unwrap_or("未命名");
+                                                    ui.label(egui::RichText::new(name).size(12.0).strong());
+                                                    if let Some(sched) = &job.schedule {
+                                                        ui.label(egui::RichText::new(format!("({sched})")).size(11.0).color(Color32::from_gray(130)));
+                                                    }
+                                                    if let Some(last) = &job.last_run_at {
+                                                        ui.label(egui::RichText::new(format!("上次: {last}")).size(10.5).color(Color32::from_gray(110)));
+                                                    }
+                                                });
+                                            }
+                                        });
+                                }
                             }
                         });
                         ui.add_space(12.0);
