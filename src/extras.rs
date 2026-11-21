@@ -1854,7 +1854,8 @@ impl App {
                                 ui.separator();
                                 ui.horizontal(|ui| {
                                     if ui.button("测试连接").clicked() {
-                                        self.hermes.test_connection(&self.hermes.config.server_url);
+                                        let target_url = self.hermes.config.server_url.clone();
+                                        self.hermes.test_connection(&target_url);
                                     }
                                     if ui.button("立即刷新").clicked() {
                                         self.hermes.trigger_refresh();

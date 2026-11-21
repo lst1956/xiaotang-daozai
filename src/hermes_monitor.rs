@@ -4,6 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -175,7 +176,7 @@ impl HermesService {
 
                         match res {
                             Ok(resp) => {
-                                match resp.into_json::<BridgeOverview>() {
+                                match serde_json::from_reader::<_, BridgeOverview>(resp.into_reader().take(2 * 1024 * 1024)) {
                                     Ok(overview) => {
                                         *data_store.lock().unwrap() = Some(overview);
                                         *error_store.lock().unwrap() = None;
@@ -241,7 +242,7 @@ impl HermesService {
                 .call();
             match res {
                 Ok(resp) => {
-                    match resp.into_json::<BridgeOverview>() {
+                    match serde_json::from_reader::<_, BridgeOverview>(resp.into_reader().take(2 * 1024 * 1024)) {
                         Ok(data) => {
                             let msg = format!(
                                 "连接成功！Hermes任务: {}项, 未完成待办: {}项",
