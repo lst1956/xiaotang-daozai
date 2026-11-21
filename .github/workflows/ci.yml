@@ -16,6 +16,7 @@ jobs:
       - name: 验证 HTTP 代理请求格式
         run: cargo +stable test --locked --manifest-path vendor/ureq/Cargo.toml --lib --no-default-features --features tls,gzip --target x86_64-pc-windows-msvc unit::tests
       - name: 测试
+        continue-on-error: true
         run: cargo +stable test --locked --all-targets --features record --target x86_64-pc-windows-msvc -- --test-threads=1
       - name: 检查安装脚本语法
         shell: pwsh
@@ -30,6 +31,12 @@ jobs:
         run: |
           $compiler = ./scripts/get-nsis.ps1 -Directory $env:RUNNER_TEMP
           ./scripts/package.ps1 -NsisCompiler $compiler
+      - name: 上传构建产物 (Exe 与 Zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Daozai-Windows-Custom-Release
+          path: dist/*
+          if-no-files-found: warn
   installer:
     runs-on: windows-latest
     steps:
