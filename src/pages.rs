@@ -915,14 +915,24 @@ impl App {
         hc.text(42.0 + w, 61.0, &format!("/{total}"), size::HERO, W::Bold, theme::WHITE, H::Left);
         c.text(42.0, 78.0, "已完成", size::SMALL, W::Regular, theme::GRAY, H::Left);
 
-        let (add, ac) = capsule(c, 41.0, 96.0, 74.0, 26.0, "t-add", theme::BTN, theme::BTN_HOVER);
-        paint::plus(&ac, 56.0, 109.0, 6.2, theme::WHITE, Color32::BLACK);
-        ac.text(67.0, 112.5, "加一个", size::BODY, W::Regular, theme::WHITE, H::Left);
-        let can_edit = !self.todos.items.is_empty() && !self.adding && self.editing.is_none();
-        let ec = if can_edit { c.clone() } else { c.faded(0.45) };
-        let (edit, edc) = capsule(&ec, 121.0, 96.0, 68.0, 26.0, "t-edit", theme::BTN, if can_edit { theme::BTN_HOVER } else { theme::BTN });
-        if self.todo_choosing{paint::close(&edc,135.0,109.0,3.5,theme::WHITE);}else{paint::pencil(&edc,135.0,109.0,11.0,theme::WHITE);}
-        edc.text(145.0, 112.5, if self.todo_choosing{"取消"}else{"改一下"}, size::BODY, W::Regular, theme::WHITE, H::Left);
+        let vikunja_url = if self.hermes.config.server_url.contains(":8686") {
+            self.hermes.config.server_url.replace(":8686", ":3456")
+        } else {
+            "http://10.10.10.103:3456".to_string()
+        };
+
+        let (add, ac) = capsule(c, 41.0, 96.0, 72.0, 26.0, "t-add", theme::BTN, theme::BTN_HOVER);
+        paint::plus(&ac, 54.0, 109.0, 5.5, theme::WHITE, Color32::BLACK);
+        ac.text(64.0, 112.5, "新建 ↗", size::BODY, W::Regular, theme::WHITE, H::Left);
+        if add.on_hover_text("在默认浏览器中打开 Vikunja 新建待办").clicked() {
+            crate::hermes_monitor::open_url_in_browser(&vikunja_url);
+        }
+
+        let (web, wc) = capsule(c, 119.0, 96.0, 72.0, 26.0, "t-web", theme::BTN, theme::BTN_HOVER);
+        wc.text(155.0, 112.5, "看板 ↗", size::BODY, W::Regular, theme::WHITE, H::Center);
+        if web.on_hover_text("在默认浏览器中打开 Vikunja 待办看板").clicked() {
+            crate::hermes_monitor::open_url_in_browser(&vikunja_url);
+        }
 
         c.fill(196.0, 31.0, 181.0, 93.0, 12.0, theme::CARD);
         let editing = self.adding || self.editing.is_some();
@@ -977,7 +987,9 @@ impl App {
                 let tag_w = if tag.is_empty() { 0.0 } else { c.text_w(&tag, size::TINY, W::Regular) + 6.0 };
                 let text = c.fit(&item.text, size::BODY, W::Regular, 104.0 - tag_w);
                 let repeat_hint = if item.is_repeating() { format!("\n{}{}", crate::model::repeat_label(item.repeat), if today_item { "" } else { " · 今天不用做" }) } else { String::new() };
-                r.clone().on_hover_text(format!("{}{}{}",item.text,repeat_hint,item.reminder_text().map(|d|format!("\n提醒：{d}")).unwrap_or_default()));
+                let task_id = self.hermes.vikunja_task_map.lock().unwrap().get(&item.text).copied();
+                let vikunja_tip = if task_id.is_some() { "\n右键可在 Vikunja 中查看详情" } else { "" };
+                r.clone().on_hover_text(format!("{}{}{}{vikunja_tip}",item.text,repeat_hint,item.reminder_text().map(|d|format!("\n提醒：{d}")).unwrap_or_default()));
                 let tcol = mix(Color32::from_gray(235), Color32::from_gray(110), ct);
                 let tw = rc.text(223.0, y + 3.8, &text, size::BODY, W::Regular, tcol, H::Left);
                 if !tag.is_empty() {
@@ -1000,15 +1012,29 @@ impl App {
                 c.path(&[(342.0,y-2.5),(342.0,y),(344.3,y+1.0)],1.1,ink);
                 if reminder_clicked {self.open_task_reminder(i);}
                 let mut edit_this=false;
+                let mut open_task_url = None;
                 r.context_menu(|ui|{
+                    if let Some(tid) = task_id {
+                        if ui.button("在 Vikunja 中打开详情 ↗").clicked() {
+                            open_task_url = Some(format!("{vikunja_url}/tasks/{tid}"));
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                    }
                     if ui.button("编辑与提醒…").clicked(){edit_this=true;ui.close_menu();}
                     if ui.button("取消提醒").clicked(){self.todos.items[i].due=None;self.todos.save();ui.close_menu();}
                 });
+                if let Some(target) = open_task_url {
+                    crate::hermes_monitor::open_url_in_browser(&target);
+                }
                 if edit_this {self.open_task_dialog(i);}
                 if delete {
                     self.todos.items.remove(i);
                     if let Some(index)=self.editing.as_mut(){if i<*index{*index-=1;}}
-                    self.todos.save();self.todo_first=self.todo_first.min(self.todos.items.len().saturating_sub(3));break;
+                    self.todos.save();
+                    self.todo_first=self.todo_first.min(self.todos.items.len().saturating_sub(3));
+                    self.hermes.sync_task_status_to_vikunja(&item.text, true);
+                    break;
                 }
                 if r.clicked() && !edit_this && !reminder_clicked && !today_item {
                     self.say(format!("{}的待办，今天不用做", crate::model::repeat_label(item.repeat)));
@@ -1035,23 +1061,7 @@ impl App {
             }
         }
 
-        if add.clicked() {
-            self.todo_choosing=false;
-            self.todo_first=0;
-            self.adding = true;
-            self.editing = None;
-            self.buf.clear();
-            self.todo_input_focused=false;
-        }
-        if edit.clicked() && can_edit {
-            if count==1 {
-                let i=order[0];
-                self.editing = Some(i);
-                self.adding = false;
-                self.buf = self.todos.items[i].text.clone();
-                self.todo_input_focused=false;
-            }else{self.todo_choosing=!self.todo_choosing;if self.todo_choosing{self.pending.push(Cmd::Focus);}}
-        }
+
     }
 
     // ---------------------------------------------------------------
