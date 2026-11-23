@@ -104,6 +104,8 @@ pub struct HermesJobItem {
     pub next_run_at: Option<String>,
     pub last_status: Option<String>,
     pub has_error: Option<bool>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -158,6 +160,7 @@ pub struct HermesService {
     test_rx: Option<Receiver<Result<String, String>>>,
     pub test_result: Option<Result<String, String>>,
     pub pending_alerts: Arc<Mutex<Vec<HermesAlertItem>>>,
+    pub vikunja_task_map: Arc<Mutex<HashMap<String, i64>>>,
 }
 
 impl HermesService {
@@ -167,6 +170,7 @@ impl HermesService {
         let last_error = Arc::new(Mutex::new(None));
         let is_busy = Arc::new(AtomicBool::new(false));
         let pending_alerts = Arc::new(Mutex::new(Vec::new()));
+        let vikunja_task_map = Arc::new(Mutex::new(HashMap::new()));
         let (trigger_tx, trigger_rx) = channel::<()>();
 
         let cfg_clone = config.clone();
@@ -174,6 +178,7 @@ impl HermesService {
         let error_store = Arc::clone(&last_error);
         let busy_flag = Arc::clone(&is_busy);
         let alerts_store = Arc::clone(&pending_alerts);
+        let v_map_store = Arc::clone(&vikunja_task_map);
 
         // 启动后台工作线程
         std::thread::Builder::new()
@@ -195,6 +200,14 @@ impl HermesService {
                             Ok(resp) => {
                                 match serde_json::from_reader::<_, BridgeOverview>(resp.into_reader().take(2 * 1024 * 1024)) {
                                     Ok(mut overview) => {
+                                        // 更新 Vikunja 任务名称到 ID 映射
+                                        {
+                                            let mut map = v_map_store.lock().unwrap();
+                                            for vt in &overview.todos.items {
+                                                map.insert(vt.title.trim().to_string(), vt.id);
+                                            }
+                                        }
+
                                         // 排序：异常失败的任务置顶，其余任务按 last_run_at 降序排列
                                         overview.hermes.jobs.sort_by(|a, b| {
                                             let a_err = a.has_error.unwrap_or(false);
@@ -300,6 +313,7 @@ impl HermesService {
             test_rx: None,
             test_result: None,
             pending_alerts,
+            vikunja_task_map,
         }
     }
 
@@ -392,9 +406,11 @@ impl HermesService {
     pub fn sync_into_todos(&self, todos: &mut crate::model::TodoList) -> bool {
         let Some(snapshot) = self.snapshot() else { return false; };
         let mut changed = false;
+        let mut map = self.vikunja_task_map.lock().unwrap();
         for vt in &snapshot.todos.items {
             let prefix_title = vt.title.trim();
             if prefix_title.is_empty() { continue; }
+            map.insert(prefix_title.to_string(), vt.id);
 
             // 检查是否已存在同名待办
             let exists = todos.items.iter().any(|item| item.text == prefix_title);
@@ -421,9 +437,11 @@ impl HermesService {
     /// 强制重新全量同步 Vikunja 待办
     pub fn force_resync_todos(&self, todos: &mut crate::model::TodoList) {
         let Some(snapshot) = self.snapshot() else { return; };
+        let mut map = self.vikunja_task_map.lock().unwrap();
         for vt in &snapshot.todos.items {
             let prefix_title = vt.title.trim();
             if prefix_title.is_empty() { continue; }
+            map.insert(prefix_title.to_string(), vt.id);
             if let Some(existing) = todos.items.iter_mut().find(|it| it.text == prefix_title) {
                 if let Some(due) = &vt.due_date {
                     if due.len() >= 16 && !due.starts_with("0001-01-01") {
@@ -445,6 +463,27 @@ impl HermesService {
             }
         }
         todos.save();
+    }
+
+    /// 异步同步待办完成状态回写到服务器上的 Vikunja
+    pub fn sync_task_status_to_vikunja(&self, title: &str, is_done: bool) {
+        let title_clean = title.trim().to_string();
+        let task_id = {
+            self.vikunja_task_map.lock().unwrap().get(&title_clean).copied()
+        };
+        let Some(id) = task_id else { return; };
+        let server_url = self.config.server_url.trim_end_matches('/').to_string();
+        if server_url.is_empty() { return; }
+
+        std::thread::Builder::new()
+            .name("daozai-vikunja-sync".into())
+            .spawn(move || {
+                let url = format!("{server_url}/api/todos/{id}/toggle");
+                let _ = ureq::post(&url)
+                    .timeout(Duration::from_secs(4))
+                    .send_json(serde_json::json!({ "done": is_done }));
+            })
+            .ok();
     }
 }
 

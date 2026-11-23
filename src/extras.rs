@@ -1838,21 +1838,12 @@ impl App {
                         let on=self.settings_feature_header(ui,crate::app::TODO_PAGE,"任务清单与到期提醒",|_,_|{});
                         let _=on;
                         ui.add_space(8.0);
-                        settings_label(ui, "待办数据与 Vikunja 同步");
+                        settings_label(ui, "待办任务管理");
                         settings_card(ui, |ui| {
                             let total_todos = self.todos.items.len();
                             let done_todos = self.todos.items.iter().filter(|i| i.done_on.is_some()).count();
                             ui.label(egui::RichText::new(format!("本地待办总数: {total_todos} 项（已完成 {done_todos} 项）")).size(12.0));
-                            ui.separator();
-                            ui.horizontal(|ui| {
-                                if ui.button("立即从服务器重新同步待办").clicked() {
-                                    self.hermes.force_resync_todos(&mut self.todos);
-                                }
-                                if ui.button("查看 Hermes 调度监控设置 ›").clicked() {
-                                    self.settings_tab = SETTINGS_TAB_HERMES;
-                                }
-                            });
-                            settings_hint(ui, "服务器上的 Vikunja 未完成任务会自动定时同步到岛仔。");
+                            settings_hint(ui, "支持设置单次截止提醒与每周工作日/周末重复。若在「定时调度」中开启了监控，会自动与服务器上的 Vikunja 保持双向同步。");
                         });
                         ui.add_space(12.0);
                         let on=self.settings_feature_header(ui,crate::app::SHELF_PAGE,"临时收纳文件与剪贴板",|_,_|{});
@@ -2369,9 +2360,6 @@ impl App {
                     if ui.button("立即刷新").clicked() {
                         self.hermes.trigger_refresh();
                     }
-                    if ui.button("重新同步待办").clicked() {
-                        self.hermes.force_resync_todos(&mut self.todos);
-                    }
                     if ui.button("打开配置文件").clicked() {
                         crate::hermes_monitor::open_url_in_browser(&crate::hermes_monitor::HermesBridgeConfig::config_path().to_string_lossy());
                     }
@@ -2383,6 +2371,16 @@ impl App {
                         Err(err) => { ui.label(egui::RichText::new(format!("❌ {err}")).color(Color32::from_rgb(255, 100, 100)).size(12.0)); }
                     }
                 }
+            }
+        });
+
+        settings_label(ui, "Vikunja 待办双向同步");
+        settings_card(ui, |ui| {
+            ui.label(egui::RichText::new("已集成 Vikunja 双向状态同步").size(12.5).strong());
+            ui.label(egui::RichText::new("在岛仔点击完成待办事项时，会自动异步调用服务端接口将 Vikunja 任务同步打勾标记；未完成任务每 30 秒自动刷新。").size(11.5).color(Color32::from_gray(160)));
+            ui.add_space(4.0);
+            if ui.button("立即全量重新拉取待办清单").clicked() {
+                self.hermes.force_resync_todos(&mut self.todos);
             }
         });
 
