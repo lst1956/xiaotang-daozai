@@ -479,9 +479,11 @@ impl HermesService {
             .name("daozai-vikunja-sync".into())
             .spawn(move || {
                 let url = format!("{server_url}/api/todos/{id}/toggle");
+                let body = format!(r#"{{"done":{}}}"#, is_done);
                 let _ = ureq::post(&url)
                     .timeout(Duration::from_secs(4))
-                    .send_json(serde_json::json!({ "done": is_done }));
+                    .set("Content-Type", "application/json")
+                    .send_string(&body);
             })
             .ok();
     }

@@ -1172,7 +1172,7 @@ pub(crate) fn settings_advanced(ui:&mut egui::Ui,id:&str,add:impl FnOnce(&mut eg
     // 右侧箭头：收起朝右，展开朝下。
     let c=egui::pos2(rect.right()-10.0,rect.center().y);
     let pts=if open{vec![c+egui::vec2(-4.5,-2.0),c+egui::vec2(0.0,2.5),c+egui::vec2(4.5,-2.0)]}else{vec![c+egui::vec2(-2.0,-4.5),c+egui::vec2(2.5,0.0),c+egui::vec2(-2.0,4.5)]};
-    ui.painter().add(egui::Shape::line(pts,egui::Stroke::new(1.6,fg)));
+    ui.painter().add(egui::Shape::line(pts,egui::Stroke::new(1.6_f32,fg)));
     if response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked(){open=!open;ctx.data_mut(|d|d.insert_temp(state,open));}
     if open {
         ui.spacing_mut().item_spacing.y=8.0;
@@ -1193,7 +1193,7 @@ fn settings_state_chip(ui:&mut egui::Ui,on:bool){
 pub(crate) fn settings_apply_style(ui:&mut egui::Ui){
     let ctx=&ui.ctx().clone();
     // 分割线：浅色模式用很淡的灰，深色模式略亮于卡片，不再是系统默认的粗灰线。
-    ui.visuals_mut().widgets.noninteractive.bg_stroke=egui::Stroke::new(1.0,settings_color(ctx,Color32::from_rgb(52,52,57),Color32::from_rgb(233,235,240)));
+    ui.visuals_mut().widgets.noninteractive.bg_stroke=egui::Stroke::new(1.0_f32,settings_color(ctx,Color32::from_rgb(52,52,57),Color32::from_rgb(233,235,240)));
     ui.spacing_mut().item_spacing.y=ui.spacing().item_spacing.y.max(5.0);
     ui.spacing_mut().item_spacing=egui::vec2(8.0,5.0);
     ui.spacing_mut().button_padding=egui::vec2(10.0,6.0);
@@ -1220,7 +1220,7 @@ pub(crate) fn settings_apply_style(ui:&mut egui::Ui){
 /// 设置页弹窗的外框：卡片底色、大圆角、细描边和阴影。
 pub(crate) fn settings_modal_frame(ctx:&egui::Context)->egui::Frame{
     egui::Frame::new().fill(settings_color(ctx,Color32::from_rgb(36,36,40),Color32::WHITE)).corner_radius(14.0).inner_margin(egui::Margin::same(20))
-        .stroke(egui::Stroke::new(1.0,settings_color(ctx,Color32::from_rgb(58,58,64),Color32::from_rgb(222,225,231))))
+        .stroke(egui::Stroke::new(1.0_f32,settings_color(ctx,Color32::from_rgb(58,58,64),Color32::from_rgb(222,225,231))))
         .shadow(egui::Shadow{offset:[0,8],blur:28,spread:0,color:Color32::from_black_alpha(90)})
 }
 /// 弹窗标题栏：标题在左、关闭在右，下面一条分隔线。返回是否点了关闭。
@@ -1244,7 +1244,7 @@ fn settings_toggle_chip(ui:&mut egui::Ui,text:&str,on:bool)->egui::Response{
     let label=text.to_string();
     let fg=if on{settings_color(ctx,Color32::from_rgb(127,214,155),Color32::from_rgb(29,122,60))}else{settings_color(ctx,Color32::from_gray(185),Color32::from_gray(80))};
     let fill=if on{settings_color(ctx,Color32::from_rgb(28,51,36),Color32::from_rgb(227,244,232))}else{Color32::TRANSPARENT};
-    let stroke=if on{egui::Stroke::NONE}else{egui::Stroke::new(1.0,settings_color(ctx,Color32::from_rgb(60,60,66),Color32::from_rgb(214,218,225)))};
+    let stroke=if on{egui::Stroke::NONE}else{egui::Stroke::new(1.0_f32,settings_color(ctx,Color32::from_rgb(60,60,66),Color32::from_rgb(214,218,225)))};
     ui.add(egui::Button::new(egui::RichText::new(label).size(12.0).color(fg)).fill(fill).stroke(stroke).corner_radius(13.0).min_size(egui::vec2(0.0,26.0)))
 }
 /// 功能页面对应的图标，与侧栏同一套。
@@ -1470,7 +1470,7 @@ impl App {
             style.visuals=if dark{egui::Visuals::dark()}else{egui::Visuals::light()};
             // 侧栏与正文之间的竖线、弹窗里的分隔线都用这条淡线；浅色模式不再是一条深灰粗线。
             // 侧栏边框已去掉，这里是唯一的一条：浅色模式一条淡线，深色模式不画线，靠两块底色区分。
-            style.visuals.widgets.noninteractive.bg_stroke=if dark{egui::Stroke::NONE}else{egui::Stroke::new(1.0,Color32::from_rgb(226,229,234))};
+            style.visuals.widgets.noninteractive.bg_stroke=if dark{egui::Stroke::NONE}else{egui::Stroke::new(1.0_f32,Color32::from_rgb(226,229,234))};
             ctx.set_style(style);
             ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(if dark{egui::SystemTheme::Dark}else{egui::SystemTheme::Light}));
             if self.settings.settings_theme==crate::settings_theme::SettingsTheme::System {
@@ -1598,7 +1598,7 @@ impl App {
                                     if payload.0!=page {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                                         let y=if self.settings.page_order.iter().position(|p|*p==payload.0).unwrap()<index {row.rect.bottom()}else{row.rect.top()};
-                                        ui.painter().line_segment([egui::pos2(row.rect.left(),y),egui::pos2(row.rect.right(),y)],egui::Stroke::new(2.0,Color32::from_rgb(70,150,255)));
+                                        ui.painter().line_segment([egui::pos2(row.rect.left(),y),egui::pos2(row.rect.right(),y)],egui::Stroke::new(2.0_f32,Color32::from_rgb(70,150,255)));
                                     }
                                 }
                                 if let Some(payload)=row.dnd_release_payload::<PageDrag>() {movement=Some((payload.0,index));}

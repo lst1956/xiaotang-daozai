@@ -1976,7 +1976,16 @@ impl App {
                         self.wheel_delta=0.0;
                         let calendar_max=if self.page==CALENDAR_PAGE {self.calendar_scroll_max(env)}else{0};
                         let calendar_body=self.page==CALENDAR_PAGE && Rect::from_min_max(Pos2::new(163.0,52.0),Pos2::new(378.0,208.0)).contains(cursor);
-                        let hermes_max=if self.page==HERMES_PAGE {self.hermes.snapshot().map_or(0, |s| s.hermes.jobs.len()).saturating_sub(4)}else{0};
+                        let hermes_max=if self.page==HERMES_PAGE {
+                            self.hermes.snapshot().map_or(0, |s| {
+                                let count = match self.hermes_filter {
+                                    1 => s.hermes.jobs.iter().filter(|j| j.has_error.unwrap_or(false)).count(),
+                                    2 => s.hermes.jobs.iter().filter(|j| !j.has_error.unwrap_or(false) && j.state.as_deref() == Some("active")).count(),
+                                    _ => s.hermes.jobs.len(),
+                                };
+                                count.saturating_sub(3)
+                            })
+                        }else{0};
                         let clipboard_tab=self.page==3 && self.shelf_tab==1;
                         let clipboard_body=clipboard_tab && Rect::from_min_max(Pos2::new(42.0,31.0),Pos2::new(377.0,124.0)).contains(cursor);
                         let list=match self.page {
@@ -2721,7 +2730,7 @@ impl App {
             // 停在中间时绿边以 1.6 秒为周期缓慢呼吸，持续表明「就在中间」。
             let breathe=0.5+0.5*((self.t*std::f64::consts::TAU/1.6).sin() as f32);
             let strength=vis*lerp(0.32,lerp(0.78,1.0,breathe),lock);
-            if lock>0.01 {painter.add(egui::Shape::line(outline(2.0),egui::Stroke::new(5.0,tint(1.0,0.22*strength*lock))));}
+            if lock>0.01 {painter.add(egui::Shape::line(outline(2.0),egui::Stroke::new(5.0_f32,tint(1.0,0.22*strength*lock))));}
             painter.add(egui::Shape::line(points.clone(),egui::Stroke::new(lerp(1.0,1.6,lock),tint(lock,0.95*strength))));
         }
         let mut bounds=body.expand(8.0);
@@ -2767,8 +2776,8 @@ impl App {
                 let d=(m-mid).dot(along).abs();
                 let g=(-((d-front)/18.0).powi(2)).exp()*fade;
                 if g<0.01 {continue;}
-                painter.line_segment([pair[0],pair[1]],egui::Stroke::new(6.0,tint(1.0,0.30*g)));
-                painter.line_segment([pair[0],pair[1]],egui::Stroke::new(1.8,tint(0.45,0.95*g)));
+                painter.line_segment([pair[0],pair[1]],egui::Stroke::new(6.0_f32,tint(1.0,0.30*g)));
+                painter.line_segment([pair[0],pair[1]],egui::Stroke::new(1.8_f32,tint(0.45,0.95*g)));
             }
         }
         Some(bounds)
