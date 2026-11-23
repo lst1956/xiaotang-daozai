@@ -747,7 +747,7 @@ pub struct App {
     page_dir: f32,
     page_t0: f64,
     slide: Spring,
-    dots: [Spring; 9],
+    dots: [Spring; 10],
     wheel_delta: f32,
     pub(crate) content_scroll: Option<(egui::Id, f32)>,
     wheel_at: f64,
