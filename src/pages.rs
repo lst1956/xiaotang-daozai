@@ -1310,7 +1310,8 @@ impl App {
             } else {
                 theme::CARD
             };
-            let (r, btn) = capsule(c, tab_x, 18.0, 50.0, 20.0, ("hermes-tab", mode), bg, theme::BTN_HOVER);
+            let tab_id = match mode { 1 => "hermes-tab-1", 2 => "hermes-tab-2", _ => "hermes-tab-0" };
+            let (r, btn) = capsule(c, tab_x, 18.0, 50.0, 20.0, tab_id, bg, theme::BTN_HOVER);
             btn.text(tab_x + 25.0, 32.0, &label, size::TINY, W::Semibold, theme::WHITE, H::Center);
             if r.clicked() {
                 self.hermes_filter = mode;

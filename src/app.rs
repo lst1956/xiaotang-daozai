@@ -1976,6 +1976,7 @@ impl App {
                         self.wheel_delta=0.0;
                         let calendar_max=if self.page==CALENDAR_PAGE {self.calendar_scroll_max(env)}else{0};
                         let calendar_body=self.page==CALENDAR_PAGE && Rect::from_min_max(Pos2::new(163.0,52.0),Pos2::new(378.0,208.0)).contains(cursor);
+                        let hermes_max=if self.page==HERMES_PAGE {self.hermes.snapshot().map_or(0, |s| s.hermes.jobs.len()).saturating_sub(4)}else{0};
                         let clipboard_tab=self.page==3 && self.shelf_tab==1;
                         let clipboard_body=clipboard_tab && Rect::from_min_max(Pos2::new(42.0,31.0),Pos2::new(377.0,124.0)).contains(cursor);
                         let list=match self.page {
@@ -1986,8 +1987,8 @@ impl App {
                                 =>Some((&mut self.clip_first,self.clipboard.lock().items.len().saturating_sub(crate::pages::CLIP_ROWS))),
                             3 if !clipboard_tab && Rect::from_min_max(Pos2::new(36.0,28.0),Pos2::new(383.0,128.0)).contains(cursor)
                                 =>Some((&mut self.shelf_first,self.shelf.items.len().saturating_sub(5))),
-                            HERMES_PAGE if Rect::from_min_max(Pos2::new(196.0,31.0),Pos2::new(386.0,175.0)).contains(cursor)
-                                =>Some((&mut self.hermes_first, self.hermes.snapshot().map_or(0, |s| s.hermes.jobs.len()).saturating_sub(5))),
+                            HERMES_PAGE if Rect::from_min_max(Pos2::new(189.0,46.0),Pos2::new(377.0,165.0)).contains(cursor)
+                                =>Some((&mut self.hermes_first, hermes_max)),
                             _=>None,
                         };
                         let content_scrolls=list.as_ref().is_some_and(|(_,max)|*max>0);

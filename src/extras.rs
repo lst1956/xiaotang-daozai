@@ -2354,7 +2354,7 @@ impl App {
                 ui.horizontal(|ui| {
                     let mut interval = self.hermes.config.poll_interval_secs;
                     ui.label("轮询频率: ");
-                    if number_stepper(ui, &mut interval, 5, 600, " 秒", 5, 48.0) {
+                    if number_stepper(ui, &mut interval, 5u64, 600u64, " 秒", 5u64, 48.0) {
                         self.hermes.config.poll_interval_secs = interval;
                         let _ = self.hermes.config.save();
                     }
