@@ -34,8 +34,10 @@ pub const MAIL_PAGE: usize = 5;
 pub const QUOTA_PAGE: usize = 6;
 pub const CALENDAR_PAGE: usize = 7;
 pub const WEATHER_PAGE: usize = 8;
+pub const HERMES_PAGE: usize = 9;
 pub(crate) const WEATHER_H: f32 = 232.0;
 pub(crate) const CALENDAR_H: f32 = 216.0;
+pub(crate) const HERMES_H: f32 = 180.0;
 pub const BAR_W: f32 = 163.0; // 收起药丸宽
 pub const BAR_H: f32 = 30.0; // 收起药丸高
 pub(crate) const HUD_W: f32 = 260.0;
@@ -78,8 +80,8 @@ fn pill_shadow(painter:&egui::Painter,rect:Rect,radius:f32,strength:f32){
         painter.rect_filled(r,radius+grow*0.8,Color32::from_black_alpha((255.0*a*strength) as u8));
     }
 }
-pub(crate) const PAGE_NAMES: [&str; 9] = ["音乐", "专注", "健康", "置物架", "待办", "邮箱", "AI 额度", "日程", "天气"];
-pub(crate) const PAGE_SETTINGS_TABS: [usize; 9] = [1,2,3,5,4,7,11,8,12];
+pub(crate) const PAGE_NAMES: [&str; 10] = ["音乐", "专注", "健康", "置物架", "待办", "邮箱", "AI 额度", "日程", "天气", "调度"];
+pub(crate) const PAGE_SETTINGS_TABS: [usize; 10] = [1,2,3,5,4,7,11,8,12,15];
 
 // ---------- 动效参数 ----------
 /// 悬停意图缓冲：光标停留这么久才真正展开（期间药丸轻微胀大作为反馈），防误触。
@@ -848,6 +850,8 @@ pub struct App {
     pub(crate) pending: Vec<Cmd>,
     pub(crate) todo_first: usize,
     pub(crate) todo_choosing: bool,
+    pub(crate) hermes_first: usize,
+    pub(crate) hermes_filter: usize,
     pub(crate) pet: crate::pet::Pet,
     pub(crate) last_drink: Option<(u32, usize)>,
     // 其它
@@ -998,7 +1002,7 @@ impl App {
             forced_open_until:0.0, settings_open:false, settings_window:std::sync::Arc::new(std::sync::Mutex::new(crate::settings_window::State::load())), displays:Vec::new(), browser_at_top:false, browser_minimal_active:false, glass_tint:0.0, fluid:Default::default(), fluid_origin:Pos2::ZERO, fluid_art:None, fluid_title:String::new(), screen:None, settings_focus_requested:false, settings_tab:0, settings_category:0, messenger_statuses:Default::default(), notification_apps:model::NotificationApps::load(), subpage:None, task_dialog:None,
             listener_status: "尚未连接".into(),
             notification_bell_until: 0.0, notification_bell_at: -10.0, notice: None, hud_notice: None, hud_alpha: 0.0, notice_width:Spring::new(0.0,CLOSE.0,CLOSE.1), notice_details:false, pending_messengers:Vec::new(), messenger_scroll:0.0, alerts: Default::default(), history: Default::default(), pending: vec![],
-            todo_first: 0, todo_choosing: false, pet: Default::default(), last_drink: None,
+            todo_first: 0, todo_choosing: false, hermes_first: 0, hermes_filter: 0, pet: Default::default(), last_drink: None,
             toast: None, toast_below: false,
             last_input: 0.0, system_idle: None,
             last_cursor: None,
@@ -1813,7 +1817,7 @@ impl App {
     }
 
     pub(crate) fn expanded_height(&self)->f32 {
-        if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==WEATHER_PAGE {WEATHER_H}else if self.page==6{176.0}else if self.page==5&&self.mail.open_uid.is_some(){236.0}else{PH}
+        if self.page==CALENDAR_PAGE {CALENDAR_H}else if self.page==WEATHER_PAGE {WEATHER_H}else if self.page==HERMES_PAGE {HERMES_H}else if self.page==6{176.0}else if self.page==5&&self.mail.open_uid.is_some(){236.0}else{PH}
     }
 
     // ---------------------------------------------------------------
@@ -1982,6 +1986,8 @@ impl App {
                                 =>Some((&mut self.clip_first,self.clipboard.lock().items.len().saturating_sub(crate::pages::CLIP_ROWS))),
                             3 if !clipboard_tab && Rect::from_min_max(Pos2::new(36.0,28.0),Pos2::new(383.0,128.0)).contains(cursor)
                                 =>Some((&mut self.shelf_first,self.shelf.items.len().saturating_sub(5))),
+                            HERMES_PAGE if Rect::from_min_max(Pos2::new(196.0,31.0),Pos2::new(386.0,175.0)).contains(cursor)
+                                =>Some((&mut self.hermes_first, self.hermes.snapshot().map_or(0, |s| s.hermes.jobs.len()).saturating_sub(5))),
                             _=>None,
                         };
                         let content_scrolls=list.as_ref().is_some_and(|(_,max)|*max>0);
@@ -3005,6 +3011,13 @@ impl App {
             let c=base.faded(compact_alpha);let c=if compact_alpha<0.8{c.ghost()}else{c};
             self.draw_quota_bar(&c,local_cx,&layout);
             if let Some(x)=layout.x[bar::WEATHER] { self.draw_pill_weather(&c,local_cx+x,&layout); }
+            if self.hermes.config.enabled && self.hermes.has_error() {
+                let dot_x = local_cx + 46.0;
+                base.circle(dot_x, 9.5, 2.5, Color32::from_rgb(255, 72, 72));
+                if base.hit(dot_x - 10.0, 3.0, 20.0, 20.0, "hermes-alert-dot").on_hover_text("⚠️ Hermes 定时任务或 DMS 异常").clicked() {
+                    self.show_page(HERMES_PAGE);
+                }
+            }
         }
         if self.pomo.running && compact_alpha>0.004 {
             crate::focus_bar::draw(&base.faded(compact_alpha),local_cx+layout.x[bar::FOCUS].unwrap(),15.0,self.t,&self.pomo,self.phase_secs(self.pomo.phase),false);
@@ -3168,6 +3181,7 @@ impl App {
             6 => self.page_quota(c),
             8 => self.page_weather(c,env,cmds),
             CALENDAR_PAGE => self.page_calendar(c,env),
+            HERMES_PAGE => self.page_hermes(c, env, cmds),
             _ => self.page_settings(c),
         }
     }
@@ -3559,6 +3573,22 @@ impl App {
             if self.hermes.last_poll_time.map_or(true, |t| now.duration_since(t).as_secs() >= 3) {
                 self.hermes.last_poll_time = Some(now);
                 self.hermes.sync_into_todos(&mut self.todos);
+            }
+
+            // 处理后台收集到的任务执行提醒
+            let alerts = self.hermes.pop_alerts();
+            for alert in alerts {
+                match alert {
+                    crate::hermes_monitor::HermesAlertItem::Failed { name, error } => {
+                        self.alert("Hermes 任务异常", format!("「{name}」执行失败: {error}"), HERMES_PAGE, true);
+                    }
+                    crate::hermes_monitor::HermesAlertItem::Success { name } => {
+                        self.alert("Hermes 调度完成", format!("任务「{name}」执行成功"), HERMES_PAGE, false);
+                    }
+                    crate::hermes_monitor::HermesAlertItem::BatchSuccess { first_name, count } => {
+                        self.alert("Hermes 调度完成", format!("「{first_name}」等 {count} 项任务执行完成"), HERMES_PAGE, false);
+                    }
+                }
             }
         }
     }

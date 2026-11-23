@@ -924,57 +924,6 @@ impl App {
         if self.todo_choosing{paint::close(&edc,135.0,109.0,3.5,theme::WHITE);}else{paint::pencil(&edc,135.0,109.0,11.0,theme::WHITE);}
         edc.text(145.0, 112.5, if self.todo_choosing{"取消"}else{"改一下"}, size::BODY, W::Regular, theme::WHITE, H::Left);
 
-        if self.hermes.config.enabled {
-            if let Some(snapshot) = self.hermes.snapshot() {
-                let dms_ok = snapshot.hermes.dms.as_ref().map_or(true, |d| d.status.as_deref() == Some("ok"));
-                let has_err = snapshot.hermes.has_error || !dms_ok;
-                let bg_col = if has_err { Color32::from_rgb(60, 20, 20) } else { Color32::from_rgb(20, 38, 25) };
-                let (hr, hc) = capsule(c, 41.0, 16.0, 148.0, 22.0, "hermes-status-pill", bg_col, bg_col);
-                if has_err {
-                    hc.text(50.0, 30.5, "⚠️ DMS/Hermes 异常", size::TINY, W::Semibold, theme::RED, H::Left);
-                } else {
-                    hc.text(50.0, 30.5, &format!("🟢 DMS正常 · {}项活跃", snapshot.hermes.active_jobs), size::TINY, W::Semibold, theme::GREEN, H::Left);
-                }
-                let tip = if has_err {
-                    let mut s = format!(
-                        "⚠️ DMS/Hermes 调度异常\n• DMS 保活: {}\n• 活跃: {} | 暂停: {} | 失败: {}\n",
-                        snapshot.hermes.dms.as_ref().and_then(|d| d.status.as_deref()).unwrap_or("未知"),
-                        snapshot.hermes.active_jobs,
-                        snapshot.hermes.paused_jobs,
-                        snapshot.hermes.failed_count
-                    );
-                    for fj in &snapshot.hermes.failed_jobs {
-                        if let Some(name) = &fj.name {
-                            s.push_str(&format!("• 异常任务: {name}\n"));
-                        }
-                    }
-                    s.push_str("点击在浏览器中打开 Hermes 控制台");
-                    s
-                } else {
-                    format!(
-                        "🟢 Hermes 定时调度健康\n• DMS 保活: 正常\n• 定时任务: {} 项 (活跃 {} 项)\n• Vikunja 待办: {} 项未完成\n点击在浏览器中打开 Hermes 控制台",
-                        snapshot.hermes.total_jobs,
-                        snapshot.hermes.active_jobs,
-                        snapshot.todos.total_unfinished
-                    )
-                };
-                if hr.on_hover_text(tip).clicked() {
-                    let target = if self.hermes.config.server_url.contains(":8686") {
-                        self.hermes.config.server_url.replace(":8686", ":8648")
-                    } else {
-                        self.hermes.config.server_url.clone()
-                    };
-                    crate::hermes_monitor::open_url_in_browser(&target);
-                }
-            } else {
-                let (hr, hc) = capsule(c, 41.0, 16.0, 148.0, 22.0, "hermes-status-pill", theme::CARD, theme::BTN);
-                hc.text(50.0, 30.5, "⚪ Hermes 同步中...", size::TINY, W::Regular, theme::GRAY, H::Left);
-                if hr.clicked() {
-                    self.hermes.trigger_refresh();
-                }
-            }
-        }
-
         c.fill(196.0, 31.0, 181.0, 93.0, 12.0, theme::CARD);
         let editing = self.adding || self.editing.is_some();
         if count == 0 && !editing {
@@ -1332,6 +1281,153 @@ impl App {
                 cmds.push(Cmd::Copy(code.clone()));
                 self.code_copied(code);
             }
+        }
+    }
+
+    // ================= Hermes 定时调度监控独立页面 =================
+    pub(crate) fn page_hermes(&mut self, c: &Card, _env: &Env, _cmds: &mut Vec<Cmd>) {
+        let snapshot = self.hermes.snapshot();
+        let is_offline = snapshot.is_none() || self.hermes.last_error.lock().unwrap().is_some();
+
+        // 顶部状态栏：左侧标题与 DMS 徽章，右侧过滤切换
+        c.text(42.0, 32.0, "定时调度", size::HERO, W::Bold, theme::WHITE, H::Left);
+
+        // 过滤标签：全部(0) / 异常(1) / 活跃(2)
+        let total_count = snapshot.as_ref().map_or(0, |s| s.hermes.total_jobs);
+        let fail_count = snapshot.as_ref().map_or(0, |s| s.hermes.failed_count);
+        let active_count = snapshot.as_ref().map_or(0, |s| s.hermes.active_jobs);
+
+        let filters = [
+            (format!("全部 {total_count}"), 0),
+            (format!("异常 {fail_count}"), 1),
+            (format!("活跃 {active_count}"), 2),
+        ];
+        let mut tab_x = 135.0;
+        for (label, mode) in filters {
+            let active = self.hermes_filter == mode;
+            let bg = if active {
+                if mode == 1 && fail_count > 0 { Color32::from_rgb(180, 50, 50) } else { theme::BLUE }
+            } else {
+                theme::CARD
+            };
+            let (r, btn) = capsule(c, tab_x, 18.0, 50.0, 20.0, ("hermes-tab", mode), bg, theme::BTN_HOVER);
+            btn.text(tab_x + 25.0, 32.0, &label, size::TINY, W::Semibold, theme::WHITE, H::Center);
+            if r.clicked() {
+                self.hermes_filter = mode;
+                self.hermes_first = 0;
+            }
+            tab_x += 54.0;
+        }
+
+        // 刷新按钮与外链控制台按钮
+        let (ref_r, ref_btn) = capsule(c, 305.0, 18.0, 34.0, 20.0, "hermes-refresh", theme::BTN, theme::BTN_HOVER);
+        ref_btn.text(322.0, 32.0, "刷新", size::TINY, W::Regular, theme::WHITE, H::Center);
+        if ref_r.clicked() {
+            self.hermes.trigger_refresh();
+        }
+
+        let (link_r, link_btn) = capsule(c, 343.0, 18.0, 34.0, 20.0, "hermes-link", theme::BTN, theme::BTN_HOVER);
+        link_btn.text(360.0, 32.0, "控制", size::TINY, W::Regular, theme::WHITE, H::Center);
+        if link_r.on_hover_text("在默认浏览器中打开控制台").clicked() {
+            let target = if self.hermes.config.server_url.contains(":8686") {
+                self.hermes.config.server_url.replace(":8686", ":8648")
+            } else {
+                self.hermes.config.server_url.clone()
+            };
+            crate::hermes_monitor::open_url_in_browser(&target);
+        }
+
+        // ================= 左侧：DMS 保活状态大卡片 (x: 41.0, y: 46.0, w: 140.0, h: 114.0) =================
+        let dms_status = snapshot.as_ref().and_then(|s| s.hermes.dms.as_ref()).and_then(|d| d.status.as_deref()).unwrap_or("未知");
+        let dms_ok = dms_status == "ok";
+        let dms_bg = if dms_ok { Color32::from_rgb(22, 38, 28) } else { Color32::from_rgb(48, 22, 22) };
+        c.fill(41.0, 46.0, 140.0, 114.0, 10.0, dms_bg);
+
+        let status_color = if dms_ok { theme::GREEN } else { theme::RED };
+        c.circle(55.0, 62.0, 5.0, status_color);
+        c.text(66.0, 66.0, if dms_ok { "DMS 保活正常" } else { "DMS 异常告警" }, size::BODY, W::Bold, theme::WHITE, H::Left);
+
+        let dms_last = snapshot.as_ref()
+            .and_then(|s| s.hermes.dms.as_ref())
+            .and_then(|d| d.last_run_at.as_deref())
+            .map(|t| if t.len() >= 16 { &t[11..16] } else { t })
+            .unwrap_or("--:--");
+        c.text(52.0, 88.0, &format!("上次执行: {dms_last}"), size::TINY, W::Regular, theme::GRAY, H::Left);
+        c.text(52.0, 104.0, "调度周期: 每 10 分钟", size::TINY, W::Regular, theme::GRAY, H::Left);
+
+        if is_offline {
+            c.text(52.0, 134.0, "⚠️ 连接离线中", size::TINY, W::Semibold, theme::RED, H::Left);
+        } else {
+            let task_info = format!("活跃 {active_count} | 失败 {fail_count}");
+            c.text(52.0, 134.0, &task_info, size::TINY, W::Regular, Color32::from_gray(170), H::Left);
+        }
+
+        // ================= 右侧：19 个定时任务列表 (x: 189.0, y: 46.0, w: 188.0, h: 114.0) =================
+        c.fill(189.0, 46.0, 188.0, 114.0, 10.0, theme::CARD);
+
+        if let Some(data) = &snapshot {
+            // 根据过滤条件过滤
+            let filtered_jobs: Vec<_> = data.hermes.jobs.iter().filter(|j| {
+                match self.hermes_filter {
+                    1 => j.has_error.unwrap_or(false),
+                    2 => !j.has_error.unwrap_or(false) && j.state.as_deref() == Some("active"),
+                    _ => true,
+                }
+            }).collect();
+
+            if filtered_jobs.is_empty() {
+                c.text(283.0, 106.0, if self.hermes_filter == 1 { "无异常任务" } else { "无匹配任务" }, size::SMALL, W::Regular, theme::GRAY, H::Center);
+            } else {
+                let shown_cap = 4;
+                let start = self.hermes_first.min(filtered_jobs.len().saturating_sub(1));
+                let mut row = 0;
+                for job in filtered_jobs.iter().skip(start).take(shown_cap) {
+                    let y = 64.0 + row as f32 * 24.0;
+                    let is_err = job.has_error.unwrap_or(false);
+                    let state = job.state.as_deref().unwrap_or("active");
+
+                    // 状态点
+                    let dot_col = if is_err {
+                        theme::RED
+                    } else if state == "active" {
+                        theme::GREEN
+                    } else {
+                        Color32::from_gray(120)
+                    };
+                    c.circle(199.0, y - 3.5, 3.5, dot_col);
+
+                    // 任务名称
+                    let name = job.name.as_deref().unwrap_or("未命名");
+                    let name_fit = c.fit(name, size::BODY, W::Semibold, 100.0);
+                    c.text(208.0, y, &name_fit, size::BODY, W::Semibold, if is_err { theme::RED } else { theme::WHITE }, H::Left);
+
+                    // 最近运行时间（取 HH:MM）
+                    let last_time = job.last_run_at.as_deref()
+                        .map(|t| if t.len() >= 16 { &t[11..16] } else { t })
+                        .unwrap_or("-");
+                    c.text(370.0, y, last_time, size::TINY, W::Regular, theme::GRAY, H::Right);
+
+                    // 鼠标悬停提示完整信息
+                    let tip = format!(
+                        "任务: {}\n状态: {}\n周期: {}\n上次运行: {}\n下次运行: {}",
+                        name,
+                        if is_err { "❌ 异常失败" } else if state == "active" { "🟢 活跃运行" } else { "⏸ 暂停" },
+                        job.schedule.as_deref().unwrap_or("无"),
+                        job.last_run_at.as_deref().unwrap_or("无"),
+                        job.next_run_at.as_deref().unwrap_or("无")
+                    );
+                    c.hit(189.0, y - 12.0, 188.0, 22.0, ("hermes-job-item", row)).on_hover_text(tip);
+
+                    row += 1;
+                }
+
+                // 底部滚动提示
+                if filtered_jobs.len() > shown_cap {
+                    c.text(370.0, 154.0, &format!("共 {} 项 · 滚轮查看", filtered_jobs.len()), size::TINY, W::Regular, theme::DIM, H::Right);
+                }
+            }
+        } else {
+            c.text(283.0, 106.0, "连接中...", size::SMALL, W::Regular, theme::GRAY, H::Center);
         }
     }
 }

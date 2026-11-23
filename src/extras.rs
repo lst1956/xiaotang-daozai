@@ -1260,6 +1260,8 @@ fn settings_page_icon(page:usize)->egui::ImageSource<'static>{
         MAIL_PAGE=>("mail",include_bytes!("../assets/settings-icons/system/mail.svg")),
         QUOTA_PAGE=>("quota",include_bytes!("../assets/settings-icons/system/quota.svg")),
         CALENDAR_PAGE=>("calendar",include_bytes!("../assets/settings-icons/system/calendar.svg")),
+        WEATHER_PAGE=>("weather",include_bytes!("../assets/settings-icons/system/weather.svg")),
+        HERMES_PAGE=>("focus",include_bytes!("../assets/settings-icons/system/focus.svg")),
         _=>("weather",include_bytes!("../assets/settings-icons/system/weather.svg")),
     };
     egui::ImageSource::Bytes{uri:format!("bytes://settings-header-{name}.svg").into(),bytes:bytes.into()}
@@ -1269,7 +1271,7 @@ fn settings_page_icon(page:usize)->egui::ImageSource<'static>{
 #[cfg_attr(not(test),allow(dead_code))]
 pub(crate) fn settings_tab_module(tab:usize)->Option<usize>{
     use crate::app::*;
-    match tab {1=>Some(MUSIC_PAGE),2=>Some(FOCUS_PAGE),3=>Some(WATER_PAGE),4=>Some(TODO_PAGE),5=>Some(SHELF_PAGE),7=>Some(MAIL_PAGE),8=>Some(CALENDAR_PAGE),11=>Some(QUOTA_PAGE),12=>Some(WEATHER_PAGE),_=>None}
+    match tab {1=>Some(MUSIC_PAGE),2=>Some(FOCUS_PAGE),3=>Some(WATER_PAGE),4=>Some(TODO_PAGE),5=>Some(SHELF_PAGE),7=>Some(MAIL_PAGE),8=>Some(CALENDAR_PAGE),11=>Some(QUOTA_PAGE),12=>Some(WEATHER_PAGE),15=>Some(HERMES_PAGE),_=>None}
 }
 
 pub(crate) fn settings_label(ui:&mut egui::Ui,text:&str){
@@ -1402,11 +1404,12 @@ fn setting_choices(ui:&mut egui::Ui,title:&str,value:&mut u32,values:[u32;3],uni
 /// 设置页分页序号。旧序号保持不变（岛上入口、测试都按序号跳转），新增外观与位置两页。
 pub(crate) const SETTINGS_TAB_APPEARANCE: usize = 13;
 pub(crate) const SETTINGS_TAB_POSITION: usize = 14;
+pub(crate) const SETTINGS_TAB_HERMES: usize = 15;
 /// 侧栏：一项就是一页，不再有页内子标签。专注与健康（2、3）、待办与置物（4、5）各合成一页；关于固定左下角。
 /// 第四列是这一项之前的分组标题。
-const SETTINGS_GROUPS: [(&str,usize,usize,&str);13] = [
+const SETTINGS_GROUPS: [(&str,usize,usize,&str);14] = [
     ("通用",0,0,"岛仔"), ("外观",SETTINGS_TAB_APPEARANCE,SETTINGS_TAB_APPEARANCE,""), ("位置",SETTINGS_TAB_POSITION,SETTINGS_TAB_POSITION,""), ("页面管理",10,10,""),
-    ("音乐",1,1,"功能"), ("专注与健康",2,3,""), ("待办与置物",4,5,""), ("消息提醒",6,6,""), ("邮箱",7,7,""), ("日程",8,8,""), ("AI 额度",11,11,""), ("天气",12,12,""),
+    ("音乐",1,1,"功能"), ("专注与健康",2,3,""), ("待办与置物",4,5,""), ("消息提醒",6,6,""), ("邮箱",7,7,""), ("日程",8,8,""), ("AI 额度",11,11,""), ("天气",12,12,""), ("定时调度",SETTINGS_TAB_HERMES,SETTINGS_TAB_HERMES,""),
     ("关于",9,9,""),
 ];
 /// 分页标题；合并页（3→2、5→4）显示合并后的名字。
@@ -1532,6 +1535,11 @@ impl App {
                     // 右侧给滚动条留出空隙，卡片和开关不会被它压住。
                     ui.set_width((ui.available_width()-12.0).max(240.0));
                     match tab {
+                    15=>{
+                        let on=self.settings_feature_header(ui,crate::app::HERMES_PAGE,"DMS 保活状态与 19 项定时任务监控",|_,_|{});
+                        ui.add_space(4.0);
+                        ui.add_enabled_ui(on,|ui|self.hermes_settings(ui));
+                    }
                     12=>{
                         let on=self.settings_feature_header(ui,crate::app::WEATHER_PAGE,"当地天气与七日预报",|_,_|{});
                         ui.add_space(4.0);
@@ -1561,7 +1569,7 @@ impl App {
                         });
                         settings_label(ui,"功能页面");
                         settings_card(ui,|ui|{
-                            let descriptions=["播放控制与同步歌词","番茄钟与休息计时","喝水与久坐提醒","临时收纳文件位置","任务清单与到期提醒","邮件摘要与验证码","Agent 剩余额度和账号切换","月历、邮件邀请与工作日程","当地天气与七日预报"];
+                            let descriptions=["播放控制与同步歌词","番茄钟与休息计时","喝水与久坐提醒","临时收纳文件位置","任务清单与到期提醒","邮件摘要与验证码","Agent 剩余额度和账号切换","月历、邮件邀请与工作日程","当地天气与七日预报","DMS保活状态与定时任务监控"];
                             ui.label(egui::RichText::new("拖动左侧手柄调整顺序；关闭的功能不在后台运行，不同步也不提醒，已有数据保留。").size(11.5).color(settings_color(ctx,Color32::from_gray(180),Color32::from_gray(75))));
                             #[derive(Clone)]
                             struct PageDrag(usize);
@@ -1830,95 +1838,21 @@ impl App {
                         let on=self.settings_feature_header(ui,crate::app::TODO_PAGE,"任务清单与到期提醒",|_,_|{});
                         let _=on;
                         ui.add_space(8.0);
-                        settings_label(ui, "Hermes 定时调度与待办同步");
+                        settings_label(ui, "待办数据与 Vikunja 同步");
                         settings_card(ui, |ui| {
-                            let mut bridge_on = self.hermes.config.enabled;
-                            setting_row(ui, "启用同步", "定时拉取 Hermes 19 项任务健康度、DMS 保活状态与 Vikunja 待办", &mut bridge_on);
-                            if bridge_on != self.hermes.config.enabled {
-                                self.hermes.config.enabled = bridge_on;
-                                let _ = self.hermes.config.save();
-                                self.hermes.trigger_refresh();
-                            }
-                            if self.hermes.config.enabled {
-                                ui.separator();
-                                ui.horizontal(|ui| {
-                                    ui.label("服务地址: ");
-                                    let mut url = self.hermes.config.server_url.clone();
-                                    let edit = ui.add(egui::TextEdit::singleline(&mut url).desired_width(220.0));
-                                    if edit.lost_focus() || (edit.changed() && url != self.hermes.config.server_url) {
-                                        self.hermes.config.server_url = url;
-                                        let _ = self.hermes.config.save();
-                                    }
-                                });
-                                settings_hint(ui, "默认预设: http://10.10.10.103:8686");
-                                ui.separator();
-                                ui.horizontal(|ui| {
-                                    if ui.button("测试连接").clicked() {
-                                        let target_url = self.hermes.config.server_url.clone();
-                                        self.hermes.test_connection(&target_url);
-                                    }
-                                    if ui.button("立即刷新").clicked() {
-                                        self.hermes.trigger_refresh();
-                                    }
-                                    if ui.button("打开配置文件").clicked() {
-                                        crate::hermes_monitor::open_url_in_browser(&crate::hermes_monitor::HermesBridgeConfig::config_path().to_string_lossy());
-                                    }
-                                });
-                                self.hermes.check_test_result();
-                                if let Some(res) = &self.hermes.test_result {
-                                    match res {
-                                        Ok(msg) => { ui.label(egui::RichText::new(format!("✅ {msg}")).color(Color32::from_rgb(80, 200, 120)).size(12.0)); }
-                                        Err(err) => { ui.label(egui::RichText::new(format!("❌ {err}")).color(Color32::from_rgb(255, 100, 100)).size(12.0)); }
-                                    }
+                            let total_todos = self.todos.items.len();
+                            let done_todos = self.todos.items.iter().filter(|i| i.done_on.is_some()).count();
+                            ui.label(egui::RichText::new(format!("本地待办总数: {total_todos} 项（已完成 {done_todos} 项）")).size(12.0));
+                            ui.separator();
+                            ui.horizontal(|ui| {
+                                if ui.button("立即从服务器重新同步待办").clicked() {
+                                    self.hermes.force_resync_todos(&mut self.todos);
                                 }
-                                if let Some(overview) = self.hermes.snapshot() {
-                                    ui.separator();
-                                    ui.horizontal(|ui| {
-                                        ui.label(egui::RichText::new("Hermes 定时调度任务列表").size(13.0).strong());
-                                        if let Some(dms) = &overview.hermes.dms {
-                                            let dms_status = dms.status.as_deref().unwrap_or("未知");
-                                            let color = if dms_status == "ok" { Color32::from_rgb(80, 200, 120) } else { Color32::from_rgb(255, 100, 100) };
-                                            ui.label(egui::RichText::new(format!("DMS保活: {dms_status}")).color(color).size(12.0));
-                                        }
-                                    });
-                                    ui.label(egui::RichText::new(format!(
-                                        "共 {} 项任务 · 活跃 {} · 暂停 {} · 失败 {}",
-                                        overview.hermes.total_jobs,
-                                        overview.hermes.active_jobs,
-                                        overview.hermes.paused_jobs,
-                                        overview.hermes.failed_count
-                                    )).size(11.5).color(Color32::from_gray(160)));
-
-                                    egui::ScrollArea::vertical()
-                                        .id_salt("hermes_jobs_scroll")
-                                        .max_height(220.0)
-                                        .auto_shrink([false, false])
-                                        .show(ui, |ui| {
-                                            for job in &overview.hermes.jobs {
-                                                ui.horizontal(|ui| {
-                                                    let is_err = job.has_error.unwrap_or(false);
-                                                    let state = job.state.as_deref().unwrap_or("active");
-                                                    let badge = if is_err {
-                                                        egui::RichText::new("❌").color(Color32::from_rgb(255, 100, 100))
-                                                    } else if state == "active" {
-                                                        egui::RichText::new("🟢").color(Color32::from_rgb(80, 200, 120))
-                                                    } else {
-                                                        egui::RichText::new("⏸").color(Color32::from_gray(140))
-                                                    };
-                                                    ui.label(badge);
-                                                    let name = job.name.as_deref().unwrap_or("未命名");
-                                                    ui.label(egui::RichText::new(name).size(12.0).strong());
-                                                    if let Some(sched) = &job.schedule {
-                                                        ui.label(egui::RichText::new(format!("({sched})")).size(11.0).color(Color32::from_gray(130)));
-                                                    }
-                                                    if let Some(last) = &job.last_run_at {
-                                                        ui.label(egui::RichText::new(format!("上次: {last}")).size(10.5).color(Color32::from_gray(110)));
-                                                    }
-                                                });
-                                            }
-                                        });
+                                if ui.button("查看 Hermes 调度监控设置 ›").clicked() {
+                                    self.settings_tab = SETTINGS_TAB_HERMES;
                                 }
-                            }
+                            });
+                            settings_hint(ui, "服务器上的 Vikunja 未完成任务会自动定时同步到岛仔。");
                         });
                         ui.add_space(12.0);
                         let on=self.settings_feature_header(ui,crate::app::SHELF_PAGE,"临时收纳文件与剪贴板",|_,_|{});
@@ -2390,6 +2324,135 @@ impl App {
             ctx.set_style(original_style);
         });
         if !self.settings_open{self.window_layout().close();self.weather_source.close();}else{self.weather_tutorial_ui(ctx);}
+    }
+
+    pub(crate) fn hermes_settings(&mut self, ui: &mut egui::Ui) {
+        settings_label(ui, "服务连接配置");
+        settings_card(ui, |ui| {
+            let mut enabled = self.hermes.config.enabled;
+            setting_row(ui, "启用后台监控", "定时向服务器拉取 Hermes 任务健康度、DMS 保活与 Vikunja 待办", &mut enabled);
+            if enabled != self.hermes.config.enabled {
+                self.hermes.config.enabled = enabled;
+                let _ = self.hermes.config.save();
+                self.hermes.trigger_refresh();
+            }
+
+            if self.hermes.config.enabled {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("服务地址: ");
+                    let mut url = self.hermes.config.server_url.clone();
+                    let edit = ui.add(egui::TextEdit::singleline(&mut url).desired_width(240.0));
+                    if edit.lost_focus() || (edit.changed() && url != self.hermes.config.server_url) {
+                        self.hermes.config.server_url = url;
+                        let _ = self.hermes.config.save();
+                    }
+                });
+                settings_hint(ui, "默认预设: http://10.10.10.103:8686 (daozai-bridge)");
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let mut interval = self.hermes.config.poll_interval_secs;
+                    ui.label("轮询频率: ");
+                    if number_stepper(ui, &mut interval, 5, 600, " 秒", 5, 48.0) {
+                        self.hermes.config.poll_interval_secs = interval;
+                        let _ = self.hermes.config.save();
+                    }
+                });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("测试连接").clicked() {
+                        let target_url = self.hermes.config.server_url.clone();
+                        self.hermes.test_connection(&target_url);
+                    }
+                    if ui.button("立即刷新").clicked() {
+                        self.hermes.trigger_refresh();
+                    }
+                    if ui.button("重新同步待办").clicked() {
+                        self.hermes.force_resync_todos(&mut self.todos);
+                    }
+                    if ui.button("打开配置文件").clicked() {
+                        crate::hermes_monitor::open_url_in_browser(&crate::hermes_monitor::HermesBridgeConfig::config_path().to_string_lossy());
+                    }
+                });
+                self.hermes.check_test_result();
+                if let Some(res) = &self.hermes.test_result {
+                    match res {
+                        Ok(msg) => { ui.label(egui::RichText::new(format!("✅ {msg}")).color(Color32::from_rgb(80, 200, 120)).size(12.0)); }
+                        Err(err) => { ui.label(egui::RichText::new(format!("❌ {err}")).color(Color32::from_rgb(255, 100, 100)).size(12.0)); }
+                    }
+                }
+            }
+        });
+
+        settings_label(ui, "通知提醒选项");
+        settings_card(ui, |ui| {
+            let mut on_err = self.hermes.config.alert_on_error;
+            setting_row(ui, "任务失败警报", "当定时任务或 DMS 执行失败时，在岛上弹出红色警报横幅", &mut on_err);
+            if on_err != self.hermes.config.alert_on_error {
+                self.hermes.config.alert_on_error = on_err;
+                let _ = self.hermes.config.save();
+            }
+
+            ui.separator();
+            let mut on_succ = self.hermes.config.alert_on_success;
+            setting_row(ui, "任务成功通知", "每次定时任务执行成功后在岛上弹出提醒横幅（默认关闭以防打扰）", &mut on_succ);
+            if on_succ != self.hermes.config.alert_on_success {
+                self.hermes.config.alert_on_success = on_succ;
+                let _ = self.hermes.config.save();
+            }
+        });
+
+        if let Some(overview) = self.hermes.snapshot() {
+            settings_label(ui, "全部定时任务清单（按最近执行时间降序）");
+            settings_card(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(dms) = &overview.hermes.dms {
+                        let dms_status = dms.status.as_deref().unwrap_or("未知");
+                        let color = if dms_status == "ok" { Color32::from_rgb(80, 200, 120) } else { Color32::from_rgb(255, 100, 100) };
+                        ui.label(egui::RichText::new(format!("DMS保活: {dms_status}")).color(color).size(12.5).strong());
+                    }
+                    ui.label(egui::RichText::new(format!(
+                        "总计 {} 项 · 活跃 {} · 暂停 {} · 失败 {}",
+                        overview.hermes.total_jobs,
+                        overview.hermes.active_jobs,
+                        overview.hermes.paused_jobs,
+                        overview.hermes.failed_count
+                    )).size(11.5).color(Color32::from_gray(160)));
+                });
+
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt("hermes_settings_jobs_scroll")
+                    .max_height(240.0)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for job in &overview.hermes.jobs {
+                            ui.horizontal(|ui| {
+                                let is_err = job.has_error.unwrap_or(false);
+                                let state = job.state.as_deref().unwrap_or("active");
+                                let badge = if is_err {
+                                    egui::RichText::new("❌").color(Color32::from_rgb(255, 100, 100))
+                                } else if state == "active" {
+                                    egui::RichText::new("🟢").color(Color32::from_rgb(80, 200, 120))
+                                } else {
+                                    egui::RichText::new("⏸").color(Color32::from_gray(140))
+                                };
+                                ui.label(badge);
+                                let name = job.name.as_deref().unwrap_or("未命名");
+                                ui.label(egui::RichText::new(name).size(12.0).strong());
+                                if let Some(sched) = &job.schedule {
+                                    ui.label(egui::RichText::new(format!("({sched})")).size(11.0).color(Color32::from_gray(130)));
+                                }
+                                if let Some(last) = &job.last_run_at {
+                                    ui.label(egui::RichText::new(format!("上次: {last}")).size(10.5).color(Color32::from_gray(110)));
+                                }
+                            });
+                        }
+                    });
+            });
+        }
     }
 }
 

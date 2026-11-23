@@ -3,6 +3,7 @@
 //! Hermes 19项定时任务健康度、DMS 保活状态以及 Vikunja 待办清单。
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
@@ -13,6 +14,14 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+/// 客户端通知事件
+#[derive(Clone, Debug)]
+pub enum HermesAlertItem {
+    Failed { name: String, error: String },
+    Success { name: String },
+    BatchSuccess { first_name: String, count: usize },
+}
+
 /// 客户端配置，持久化在 %APPDATA%\Daozai\hermes_bridge.json
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HermesBridgeConfig {
@@ -20,6 +29,8 @@ pub struct HermesBridgeConfig {
     pub server_url: String,
     pub poll_interval_secs: u64,
     pub alert_on_error: bool,
+    #[serde(default)]
+    pub alert_on_success: bool,
 }
 
 impl Default for HermesBridgeConfig {
@@ -29,6 +40,7 @@ impl Default for HermesBridgeConfig {
             server_url: "http://10.10.10.103:8686".to_string(),
             poll_interval_secs: 30,
             alert_on_error: true,
+            alert_on_success: false,
         }
     }
 }
@@ -143,9 +155,9 @@ pub struct HermesService {
     pub last_error: Arc<Mutex<Option<String>>>,
     pub is_busy: Arc<AtomicBool>,
     trigger_tx: Sender<()>,
-    // 异步测试连接通道
     test_rx: Option<Receiver<Result<String, String>>>,
     pub test_result: Option<Result<String, String>>,
+    pub pending_alerts: Arc<Mutex<Vec<HermesAlertItem>>>,
 }
 
 impl HermesService {
@@ -154,18 +166,23 @@ impl HermesService {
         let latest_data = Arc::new(Mutex::new(None));
         let last_error = Arc::new(Mutex::new(None));
         let is_busy = Arc::new(AtomicBool::new(false));
+        let pending_alerts = Arc::new(Mutex::new(Vec::new()));
         let (trigger_tx, trigger_rx) = channel::<()>();
 
         let cfg_clone = config.clone();
         let data_store = Arc::clone(&latest_data);
         let error_store = Arc::clone(&last_error);
         let busy_flag = Arc::clone(&is_busy);
+        let alerts_store = Arc::clone(&pending_alerts);
 
         // 启动后台工作线程
         std::thread::Builder::new()
             .name("daozai-hermes-worker".into())
             .spawn(move || {
                 let mut current_cfg = cfg_clone;
+                let mut last_seen_jobs: HashMap<String, (String, bool)> = HashMap::new();
+                let mut last_seen_dms_status: Option<String> = None;
+
                 loop {
                     if current_cfg.enabled && !current_cfg.server_url.is_empty() {
                         busy_flag.store(true, Ordering::SeqCst);
@@ -177,7 +194,78 @@ impl HermesService {
                         match res {
                             Ok(resp) => {
                                 match serde_json::from_reader::<_, BridgeOverview>(resp.into_reader().take(2 * 1024 * 1024)) {
-                                    Ok(overview) => {
+                                    Ok(mut overview) => {
+                                        // 排序：异常失败的任务置顶，其余任务按 last_run_at 降序排列
+                                        overview.hermes.jobs.sort_by(|a, b| {
+                                            let a_err = a.has_error.unwrap_or(false);
+                                            let b_err = b.has_error.unwrap_or(false);
+                                            b_err.cmp(&a_err).then_with(|| b.last_run_at.cmp(&a.last_run_at))
+                                        });
+
+                                        // 状态变更与新任务完成检测
+                                        if !last_seen_jobs.is_empty() {
+                                            let mut newly_succeeded = Vec::new();
+                                            let mut newly_failed = Vec::new();
+
+                                            for job in &overview.hermes.jobs {
+                                                let name = job.name.clone().unwrap_or_else(|| "未命名任务".into());
+                                                let run_at = job.last_run_at.clone().unwrap_or_default();
+                                                let err = job.has_error.unwrap_or(false);
+
+                                                if let Some((prev_run, _prev_err)) = last_seen_jobs.get(&name) {
+                                                    if &run_at != prev_run && !run_at.is_empty() {
+                                                        if err {
+                                                            let err_msg = overview.hermes.failed_jobs.iter()
+                                                                .find(|fj| fj.name.as_deref() == Some(&name))
+                                                                .and_then(|fj| fj.error.clone())
+                                                                .unwrap_or_else(|| "执行退出码非零".into());
+                                                            newly_failed.push((name.clone(), err_msg));
+                                                        } else {
+                                                            newly_succeeded.push(name.clone());
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // 检测 DMS 异常
+                                            if let Some(dms) = &overview.hermes.dms {
+                                                let current_dms_status = dms.status.clone().unwrap_or_else(|| "未知".into());
+                                                if let Some(prev_dms) = &last_seen_dms_status {
+                                                    if prev_dms == "ok" && current_dms_status != "ok" {
+                                                        newly_failed.push(("DMS保活服务".into(), format!("状态异常: {current_dms_status}")));
+                                                    }
+                                                }
+                                                last_seen_dms_status = Some(current_dms_status);
+                                            }
+
+                                            // 投递弹窗事件
+                                            if current_cfg.alert_on_error {
+                                                for (name, err) in newly_failed {
+                                                    alerts_store.lock().unwrap().push(HermesAlertItem::Failed { name, error: err });
+                                                }
+                                            }
+                                            if current_cfg.alert_on_success && !newly_succeeded.is_empty() {
+                                                if newly_succeeded.len() == 1 {
+                                                    alerts_store.lock().unwrap().push(HermesAlertItem::Success { name: newly_succeeded[0].clone() });
+                                                } else {
+                                                    alerts_store.lock().unwrap().push(HermesAlertItem::BatchSuccess {
+                                                        first_name: newly_succeeded[0].clone(),
+                                                        count: newly_succeeded.len(),
+                                                    });
+                                                }
+                                            }
+                                        } else if let Some(dms) = &overview.hermes.dms {
+                                            last_seen_dms_status = dms.status.clone();
+                                        }
+
+                                        // 更新记录快照
+                                        for job in &overview.hermes.jobs {
+                                            let name = job.name.clone().unwrap_or_else(|| "未命名任务".into());
+                                            let run_at = job.last_run_at.clone().unwrap_or_default();
+                                            let err = job.has_error.unwrap_or(false);
+                                            last_seen_jobs.insert(name, (run_at, err));
+                                        }
+
                                         *data_store.lock().unwrap() = Some(overview);
                                         *error_store.lock().unwrap() = None;
                                     }
@@ -187,7 +275,7 @@ impl HermesService {
                                 }
                             }
                             Err(e) => {
-                                *error_store.lock().unwrap() = Some(format!("请求失败: {e}"));
+                                *error_store.lock().unwrap() = Some(format!("连接服务失败: {e}"));
                             }
                         }
                         busy_flag.store(false, Ordering::SeqCst);
@@ -211,6 +299,7 @@ impl HermesService {
             trigger_tx,
             test_rx: None,
             test_result: None,
+            pending_alerts,
         }
     }
 
@@ -227,6 +316,32 @@ impl HermesService {
     /// 获取最近的错误信息
     pub fn error_msg(&self) -> Option<String> {
         self.last_error.lock().unwrap().clone()
+    }
+
+    /// 弹出积累的待提醒事件
+    pub fn pop_alerts(&self) -> Vec<HermesAlertItem> {
+        let mut store = self.pending_alerts.lock().unwrap();
+        let list = store.clone();
+        store.clear();
+        list
+    }
+
+    /// 当前系统是否有未解决的报错（任务失败或网络异常）
+    pub fn has_error(&self) -> bool {
+        if self.last_error.lock().unwrap().is_some() {
+            return true;
+        }
+        if let Some(snapshot) = self.snapshot() {
+            if snapshot.hermes.has_error {
+                return true;
+            }
+            if let Some(dms) = &snapshot.hermes.dms {
+                if dms.status.as_deref() != Some("ok") {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// 触发测试连接
@@ -301,6 +416,35 @@ impl HermesService {
             todos.save();
         }
         changed
+    }
+
+    /// 强制重新全量同步 Vikunja 待办
+    pub fn force_resync_todos(&self, todos: &mut crate::model::TodoList) {
+        let Some(snapshot) = self.snapshot() else { return; };
+        for vt in &snapshot.todos.items {
+            let prefix_title = vt.title.trim();
+            if prefix_title.is_empty() { continue; }
+            if let Some(existing) = todos.items.iter_mut().find(|it| it.text == prefix_title) {
+                if let Some(due) = &vt.due_date {
+                    if due.len() >= 16 && !due.starts_with("0001-01-01") {
+                        let date_part = &due[0..10];
+                        let time_part = &due[11..16];
+                        existing.due = Some(format!("{date_part} {time_part}"));
+                    }
+                }
+            } else {
+                let mut item = crate::model::TodoItem::new(prefix_title);
+                if let Some(due) = &vt.due_date {
+                    if due.len() >= 16 && !due.starts_with("0001-01-01") {
+                        let date_part = &due[0..10];
+                        let time_part = &due[11..16];
+                        item.due = Some(format!("{date_part} {time_part}"));
+                    }
+                }
+                todos.items.push(item);
+            }
+        }
+        todos.save();
     }
 }
 
