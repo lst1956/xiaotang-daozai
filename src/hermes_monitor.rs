@@ -75,16 +75,24 @@ impl HermesBridgeConfig {
 // ==================== 接口响应结构体 ====================
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct DmsSummary {
+pub struct HermesFeaturedJob {
     pub id: Option<String>,
     pub name: Option<String>,
     pub status: Option<String>,
+    pub status_text: Option<String>,
+    pub is_ok: Option<bool>,
     pub state: Option<String>,
     pub last_run_at: Option<String>,
+    pub last_run_label: Option<String>,
     pub next_run_at: Option<String>,
-    pub last_error: Option<String>,
+    pub next_run_label: Option<String>,
     pub schedule: Option<String>,
+    pub schedule_label: Option<String>,
+    pub summary_stats: Option<String>,
+    pub last_error: Option<String>,
 }
+
+pub type DmsSummary = HermesFeaturedJob;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct HermesFailedJob {
@@ -100,8 +108,11 @@ pub struct HermesJobItem {
     pub name: Option<String>,
     pub state: Option<String>,
     pub schedule: Option<String>,
+    pub schedule_human: Option<String>,
     pub last_run_at: Option<String>,
+    pub last_run_time: Option<String>,
     pub next_run_at: Option<String>,
+    pub next_run_time: Option<String>,
     pub last_status: Option<String>,
     pub has_error: Option<bool>,
     #[serde(default)]
@@ -118,7 +129,8 @@ pub struct HermesData {
     pub failed_count: usize,
     #[serde(default)]
     pub failed_jobs: Vec<HermesFailedJob>,
-    pub dms: Option<DmsSummary>,
+    pub featured: Option<HermesFeaturedJob>,
+    pub dms: Option<HermesFeaturedJob>,
     #[serde(default)]
     pub jobs: Vec<HermesJobItem>,
 }
@@ -240,15 +252,17 @@ impl HermesService {
                                                 }
                                             }
 
-                                            // 检测 DMS 异常
-                                            if let Some(dms) = &overview.hermes.dms {
-                                                let current_dms_status = dms.status.clone().unwrap_or_else(|| "未知".into());
-                                                if let Some(prev_dms) = &last_seen_dms_status {
-                                                    if prev_dms == "ok" && current_dms_status != "ok" {
-                                                        newly_failed.push(("DMS保活服务".into(), format!("状态异常: {current_dms_status}")));
+                                            // 检测重点特色任务异常
+                                            if let Some(card) = overview.hermes.featured.as_ref().or(overview.hermes.dms.as_ref()) {
+                                                let card_name = card.name.clone().unwrap_or_else(|| "重点任务".into());
+                                                let current_status = card.status.clone().unwrap_or_else(|| "未知".into());
+                                                if let Some(prev) = &last_seen_dms_status {
+                                                    if prev == "ok" && current_status != "ok" {
+                                                        let err_detail = card.last_error.clone().unwrap_or_else(|| format!("状态异常: {current_status}"));
+                                                        newly_failed.push((card_name, err_detail));
                                                     }
                                                 }
-                                                last_seen_dms_status = Some(current_dms_status);
+                                                last_seen_dms_status = Some(current_status);
                                             }
 
                                             // 投递弹窗事件

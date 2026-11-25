@@ -1325,57 +1325,48 @@ impl App {
         let active_count = snapshot.as_ref().map_or(0, |s| s.hermes.active_jobs);
         let paused_count = snapshot.as_ref().map_or(0, |s| s.hermes.paused_jobs);
 
-        // ================= 左侧：DMS 状态大卡片 (x: 41.0, y: 46.0, w: 145.0, h: 114.0) =================
-        let dms_obj = snapshot.as_ref().and_then(|s| s.hermes.dms.as_ref());
-        let dms_status = dms_obj.and_then(|d| d.status.as_deref()).unwrap_or("未知");
-        let dms_ok = dms_status == "ok";
-        let dms_bg = if dms_ok { Color32::from_rgb(22, 38, 28) } else { Color32::from_rgb(48, 22, 22) };
-        c.fill(41.0, 46.0, 145.0, 114.0, 12.0, dms_bg);
+        // ================= 左侧：核心特色任务 / 调度大盘大卡片 (x: 41.0, y: 46.0, w: 145.0, h: 114.0) =================
+        let card = snapshot.as_ref().and_then(|s| s.hermes.featured.as_ref().or(s.hermes.dms.as_ref()));
+        let is_ok = card.and_then(|c| c.is_ok).unwrap_or(!is_offline && fail_count == 0);
+        let card_bg = if is_ok { Color32::from_rgb(22, 38, 28) } else { Color32::from_rgb(48, 22, 22) };
+        c.fill(41.0, 46.0, 145.0, 114.0, 12.0, card_bg);
 
-        let status_color = if dms_ok { theme::GREEN } else { theme::RED };
+        let status_color = if is_ok { theme::GREEN } else { theme::RED };
         c.circle(55.0, 62.0, 5.0, status_color);
 
-        let dms_title = if dms_ok {
-            if dms_obj.and_then(|d| d.name.as_deref()).map_or(false, |n| n.contains("提取")) {
-                "DMS 提取正常"
-            } else {
-                "DMS 运行正常"
-            }
+        let card_name = card.and_then(|c| c.name.as_deref()).unwrap_or("调度服务");
+        let status_text = card.and_then(|c| c.status_text.as_deref()).unwrap_or(if is_ok { "运行正常" } else { "异常告警" });
+        let title_full = format!("{card_name} {status_text}");
+        let title_fit = c.fit(&title_full, size::BODY, W::Bold, 118.0);
+        c.text(66.0, 66.0, &title_fit, size::BODY, W::Bold, theme::WHITE, H::Left);
+
+        let last_label = card.and_then(|c| c.last_run_label.clone()).unwrap_or_else(|| {
+            let t = card.and_then(|c| c.last_run_at.as_deref()).map(|t| if t.len() >= 16 { &t[11..16] } else { t }).unwrap_or("--:--");
+            format!("上次执行: {t}")
+        });
+        c.text(52.0, 88.0, &last_label, size::TINY, W::Regular, theme::GRAY, H::Left);
+
+        let sched_label = card.and_then(|c| c.schedule_label.clone()).unwrap_or_else(|| "调度周期: 定时执行".into());
+        let sched_fit = c.fit(&sched_label, size::TINY, W::Regular, 126.0);
+        c.text(52.0, 104.0, &sched_fit, size::TINY, W::Regular, theme::GRAY, H::Left);
+
+        let stats_label = card.and_then(|c| c.summary_stats.clone()).unwrap_or_else(|| {
+            format!("活跃 {active_count} | 暂停 {paused_count} | 失败 {fail_count}")
+        });
+        if is_offline {
+            c.text(52.0, 134.0, "⚠️ 连接离线中", size::TINY, W::Semibold, theme::RED, H::Left);
         } else {
-            "DMS 异常告警"
-        };
-        c.text(66.0, 66.0, dms_title, size::BODY, W::Bold, theme::WHITE, H::Left);
+            c.text(52.0, 134.0, &stats_label, size::TINY, W::Regular, Color32::from_gray(170), H::Left);
+        }
 
-        let dms_last = dms_obj
-            .and_then(|d| d.last_run_at.as_deref())
-            .map(|t| if t.len() >= 16 { &t[11..16] } else { t })
-            .unwrap_or("--:--");
-        c.text(52.0, 88.0, &format!("上次执行: {dms_last}"), size::TINY, W::Regular, theme::GRAY, H::Left);
-
-        let dms_sched = dms_obj.and_then(|d| d.schedule.as_deref()).unwrap_or("");
-        let sched_label = if dms_sched.contains("8-20") {
-            "调度周期: 白天每整点"
-        } else if dms_sched.contains("*/10") {
-            "调度周期: 每 10 分钟"
-        } else if !dms_sched.is_empty() {
-            "调度周期: 定时执行"
-        } else {
-            "调度周期: 白天每整点"
-        };
-        c.text(52.0, 104.0, sched_label, size::TINY, W::Regular, theme::GRAY, H::Left);
-
-        let dms_next = dms_obj
-            .and_then(|d| d.next_run_at.as_deref())
-            .map(|t| if t.len() >= 16 { &t[11..16] } else { t })
-            .unwrap_or("无");
-        let dms_name = dms_obj.and_then(|d| d.name.as_deref()).unwrap_or("DMS 任务");
-        let dms_err_detail = dms_obj.and_then(|d| d.last_error.as_deref()).map(|e| format!("\n报错: {e}")).unwrap_or_default();
-        let dms_tip = format!(
-            "任务: {dms_name}\n状态: {}\n调度计划: {}\n上次执行: {dms_last}\n下次执行: {dms_next}{dms_err_detail}",
-            if dms_ok { "🟢 运行正常" } else { "❌ 异常" },
-            if dms_sched.is_empty() { "无" } else { dms_sched }
+        // 鼠标悬停查看完整卡片信息
+        let next_label = card.and_then(|c| c.next_run_label.clone()).unwrap_or_else(|| "下次执行: 无".into());
+        let err_detail = card.and_then(|c| c.last_error.as_deref()).map(|e| format!("\n报错: {e}")).unwrap_or_default();
+        let card_tip = format!(
+            "任务: {card_name}\n状态: {}\n{sched_label}\n{last_label}\n{next_label}{err_detail}",
+            if is_ok { "🟢 运行正常" } else { "❌ 异常" }
         );
-        c.hit(41.0, 46.0, 145.0, 114.0, "hermes-dms-card").on_hover_text(dms_tip);
+        c.hit(41.0, 46.0, 145.0, 114.0, "hermes-featured-card").on_hover_text(card_tip);
 
         if is_offline {
             c.text(52.0, 134.0, "⚠️ 连接离线中", size::TINY, W::Semibold, theme::RED, H::Left);
@@ -1463,7 +1454,7 @@ impl App {
                         "任务: {}\n状态: {}\n周期: {}\n上次运行: {}\n下次运行: {}{}",
                         name,
                         if is_err { "❌ 异常失败" } else if state == "active" { "🟢 活跃运行" } else { "⏸ 暂停" },
-                        job.schedule.as_deref().unwrap_or("无"),
+                        job.schedule_human.as_deref().or(job.schedule.as_deref()).unwrap_or("无"),
                         job.last_run_at.as_deref().unwrap_or("无"),
                         job.next_run_at.as_deref().unwrap_or("无"),
                         err_detail

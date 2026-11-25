@@ -2406,10 +2406,12 @@ impl App {
             settings_label(ui, "全部定时任务清单（按最近执行时间降序）");
             settings_card(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if let Some(dms) = &overview.hermes.dms {
-                        let dms_status = dms.status.as_deref().unwrap_or("未知");
-                        let color = if dms_status == "ok" { Color32::from_rgb(80, 200, 120) } else { Color32::from_rgb(255, 100, 100) };
-                        ui.label(egui::RichText::new(format!("DMS保活: {dms_status}")).color(color).size(12.5).strong());
+                    if let Some(card) = overview.hermes.featured.as_ref().or(overview.hermes.dms.as_ref()) {
+                        let name = card.name.as_deref().unwrap_or("核心任务");
+                        let is_ok = card.is_ok.unwrap_or(card.status.as_deref() == Some("ok"));
+                        let color = if is_ok { Color32::from_rgb(80, 200, 120) } else { Color32::from_rgb(255, 100, 100) };
+                        let status_text = card.status_text.as_deref().unwrap_or(if is_ok { "正常" } else { "异常" });
+                        ui.label(egui::RichText::new(format!("{name}: {status_text}")).color(color).size(12.5).strong());
                     }
                     ui.label(egui::RichText::new(format!(
                         "总计 {} 项 · 活跃 {} · 暂停 {} · 失败 {}",
@@ -2440,7 +2442,7 @@ impl App {
                                 ui.label(badge);
                                 let name = job.name.as_deref().unwrap_or("未命名");
                                 ui.label(egui::RichText::new(name).size(12.0).strong());
-                                if let Some(sched) = &job.schedule {
+                                if let Some(sched) = job.schedule_human.as_ref().or(job.schedule.as_ref()) {
                                     ui.label(egui::RichText::new(format!("({sched})")).size(11.0).color(Color32::from_gray(130)));
                                 }
                                 if let Some(last) = &job.last_run_at {
