@@ -1536,7 +1536,7 @@ impl App {
                     ui.set_width((ui.available_width()-12.0).max(240.0));
                     match tab {
                     15=>{
-                        let on=self.settings_feature_header(ui,crate::app::HERMES_PAGE,"DMS 保活状态与 19 项定时任务监控",|_,_|{});
+                        let on=self.settings_feature_header(ui,crate::app::HERMES_PAGE,"DMS 数据提取与定时任务监控",|_,_|{});
                         ui.add_space(4.0);
                         ui.add_enabled_ui(on,|ui|self.hermes_settings(ui));
                     }
@@ -2321,7 +2321,7 @@ impl App {
         settings_label(ui, "服务连接配置");
         settings_card(ui, |ui| {
             let mut enabled = self.hermes.config.enabled;
-            setting_row(ui, "启用后台监控", "定时向服务器拉取 Hermes 任务健康度、DMS 保活与 Vikunja 待办", &mut enabled);
+            setting_row(ui, "启用后台监控", "定时向服务器拉取 Hermes 任务健康度、DMS 提取状态与 Vikunja 待办", &mut enabled);
             if enabled != self.hermes.config.enabled {
                 self.hermes.config.enabled = enabled;
                 let _ = self.hermes.config.save();
